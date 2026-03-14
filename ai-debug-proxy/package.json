@@ -1,0 +1,98 @@
+{
+    "name": "ai-debug-proxy",
+    "displayName": "AI Debug Proxy",
+    "description": "HTTP proxy exposing VS Code DAP operations as a REST API for AI agents",
+    "version": "1.0.0",
+    "publisher": "datdang",
+    "engines": {
+        "vscode": "^1.88.0"
+    },
+    "categories": [
+        "Debuggers",
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "ai-debug-proxy.start",
+                "title": "AI Debug Proxy: Start Server"
+            },
+            {
+                "command": "ai-debug-proxy.stop",
+                "title": "AI Debug Proxy: Stop Server"
+            },
+            {
+                "command": "ai-debug-proxy.showLog",
+                "title": "AI Debug Proxy: Show Log"
+            },
+            {
+                "command": "ai-debug-proxy.installCLI",
+                "title": "AI Debug Proxy: Install Debug CLI (dbg.py)"
+            }
+        ],
+        "configuration": {
+            "title": "AI Debug Proxy",
+            "properties": {
+                "aiDebugProxy.port": {
+                    "type": "number",
+                    "default": 9999,
+                    "description": "Port for the HTTP proxy server"
+                },
+                "aiDebugProxy.autoStart": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically start the proxy server on VS Code startup"
+                },
+                "aiDebugProxy.logLevel": {
+                    "type": "string",
+                    "enum": [
+                        "debug",
+                        "info",
+                        "warn",
+                        "error"
+                    ],
+                    "default": "info",
+                    "description": "Logging verbosity"
+                },
+                "aiDebugProxy.subagents.allowedCommands": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Whitelist of allowed commands that subagents can execute. If empty, all commands are blocked to prevent RCE."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "compile": "node esbuild.js",
+        "watch": "node esbuild.js --watch",
+        "package": "npx @vscode/vsce package --no-dependencies",
+        "lint": "tsc --noEmit",
+        "test": "jest src",
+        "test:e2e": "playwright test",
+        "test:pact:consumer": "vitest run --config vitest.config.pact.ts",
+        "publish:pact": "../scripts/publish-pact.sh",
+        "can:i:deploy:consumer": "PACTICIPANT=ai-debug-proxy-consumer ../scripts/can-i-deploy.sh",
+        "record:consumer:deployment": "PACTICIPANT=ai-debug-proxy-consumer ../scripts/record-deployment.sh"
+    },
+    "devDependencies": {
+        "@pact-foundation/pact": "^13.0.0",
+        "@playwright/test": "^1.54.1",
+        "@seontechnologies/playwright-utils": "latest",
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "@types/vscode": "^1.88.0",
+        "axios": "^1.13.6",
+        "esbuild": "^0.20.0",
+        "jest": "^30.3.0",
+        "ts-jest": "^29.4.6",
+        "typescript": "^5.3.0",
+        "vitest": "^3.0.0"
+    }
+}

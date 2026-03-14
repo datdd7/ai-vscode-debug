@@ -1,0 +1,144 @@
+name: Quality Check
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./ai-debug-proxy
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Type Check (tsc)
+        run: npm run lint
+        continue-on-error: false
+      
+      - name: Unit Tests
+        run: npm test
+        continue-on-error: false
+      
+      - name: Build (esbuild)
+        run: npm run compile
+        continue-on-error: false
+      
+      - name: Package Extension
+        run: npm run package
+        continue-on-error: false
+      
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          name: ai-debug-proxy-vsix
+          path: ai-debug-proxy/*.vsix
+          retention-days: 7
+
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./ai-debug-proxy
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Count test coverage
+        run: |
+          echo "=== Test Statistics ==="
+          npm test 2>&1 | tail -10
+          echo ""
+          echo "=== Source Files ==="
+          find src -name "*.ts" ! -path "*/__tests__/*" | wc -l
+          echo "TypeScript source files"
+          echo ""
+          echo "=== Test Files ==="
+          find src -name "*.test.ts" | wc -l
+          echo "Test files"
+
+  contract-tests:
+    name: Pact Contract Tests
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./ai-debug-proxy
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run Pact Consumer Tests
+        run: npm run test:pact:consumer
+        continue-on-error: true
+
+  report:
+    name: Generate Quality Report
+    runs-on: ubuntu-latest
+    needs: [quality-gates, code-quality, contract-tests]
+    
+    if: always()
+    
+    steps:
+      - name: Quality Check Summary
+        run: |
+          echo "## Quality Check Results"
+          echo ""
+          echo "| Check | Status |"
+          echo "|-------|--------|"
+          echo "| Type Check | ${{ needs.quality-gates.result }} |"
+          echo "| Unit Tests | ${{ needs.quality-gates.result }} |"
+          echo "| Build | ${{ needs.quality-gates.result }} |"
+          echo "| Package | ${{ needs.quality-gates.result }} |"
+          echo "| Contract Tests | ${{ needs.contract-tests.result }} |"
+          echo ""
+          
+          if [ "${{ needs.quality-gates.result }}" == "success" ]; then
+            echo "✅ All quality gates PASSED"
+            exit 0
+          else
+            echo "❌ Some quality gates FAILED"
+            exit 1
+          fi

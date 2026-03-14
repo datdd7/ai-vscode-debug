@@ -1,0 +1,33 @@
+# VS Code Extension
+ai-debug-proxy/node_modules/
+ai-debug-proxy/out/
+ai-debug-proxy/*.vsix
+
+# Embedded Project
+embedded-debug-training/build/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Pact contract testing artifacts
+/ai-debug-proxy/pacts/
+pact-logs/
+
+# Playwright
+/ai-debug-proxy/playwright-report/
+/ai-debug-proxy/test-results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+*bmad*
+*.vscode*
+*.codex*
+*.claude*
+
+playground/build/*
+*.txt 
+*.log
