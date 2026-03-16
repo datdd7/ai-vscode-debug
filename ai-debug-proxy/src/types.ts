@@ -273,6 +273,11 @@ export interface NavigationResult extends DebuggerResponse {
   frame?: StackFrameInfo; /**< Resulting stack frame. */
   exceptionMessage?: string; /**< Error message if an exception occurred. */
   stopReason?: string; /**< Reason for the resulting stop. */
+  crashInfo?: { /**< Crash information for AI agents (auto-attached on crash). */
+    reason: string; /**< Stop reason: exception, signal, breakpoint */
+    description: string; /**< Human-readable error description */
+    stackTrace?: any; /**< Auto-captured stack trace */
+  };
 }
 
 /** @brief Result of setting a breakpoint. */

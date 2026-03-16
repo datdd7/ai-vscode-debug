@@ -404,13 +404,18 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var fs6 = __toESM(require("fs"));
+var os = __toESM(require("os"));
+var path6 = __toESM(require("path"));
 var vscode10 = __toESM(require("vscode"));
 
 // src/server/HttpServer.ts
 var http = __toESM(require("http"));
 init_logging();
+
+// src/server/router.ts
+var path5 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
 
 // src/debug/DebugController.ts
 var vscode6 = __toESM(require("vscode"));
@@ -600,6 +605,15 @@ function validateOperationArgs(operation, args) {
       }
       return ok(args);
     }
+    case "watch": {
+      if (!args || !isNonEmptyString(args.name)) {
+        return fail("'watch' requires 'name' (string)");
+      }
+      if (args.accessType !== void 0 && !["read", "write", "readWrite"].includes(args.accessType)) {
+        return fail("'watch' accessType must be 'read', 'write', or 'readWrite'");
+      }
+      return ok(args);
+    }
     default:
       return fail(`Unknown operation: '${operation}'`);
   }
@@ -649,12 +663,12 @@ var DebugError = class _DebugError extends Error {
    * @param [in] path Path to the missing binary.
    * @return DebugError instance.
    */
-  static binaryNotFound(path6) {
+  static binaryNotFound(path7) {
     return new _DebugError(
       "BINARY_NOT_FOUND" /* BINARY_NOT_FOUND */,
-      `Binary not found: ${path6}`,
+      `Binary not found: ${path7}`,
       `Have you built the project? Check your build configuration and output path.`,
-      { path: path6, exists: false }
+      { path: path7, exists: false }
     );
   }
   /**
@@ -663,12 +677,12 @@ var DebugError = class _DebugError extends Error {
    * @param [in] path Path to the missing GDB executable.
    * @return DebugError instance.
    */
-  static gdbNotFound(path6) {
+  static gdbNotFound(path7) {
     return new _DebugError(
       "GDB_NOT_FOUND" /* GDB_NOT_FOUND */,
-      `GDB debugger not found: ${path6}`,
+      `GDB debugger not found: ${path7}`,
       `Install GDB: sudo apt-get install gdb (or configure miDebuggerPath correctly)`,
-      { path: path6, exists: false }
+      { path: path7, exists: false }
     );
   }
   /**
@@ -677,12 +691,12 @@ var DebugError = class _DebugError extends Error {
    * @param [in] path Path to the missing workspace.
    * @return DebugError instance.
    */
-  static workspaceNotFound(path6) {
+  static workspaceNotFound(path7) {
     return new _DebugError(
       "WORKSPACE_NOT_FOUND" /* WORKSPACE_NOT_FOUND */,
-      `Workspace not found: ${path6}`,
+      `Workspace not found: ${path7}`,
       `Ensure the workspace path is correct and the folder is open in VS Code.`,
-      { path: path6, exists: false }
+      { path: path7, exists: false }
     );
   }
   /**
@@ -802,8 +816,14 @@ function waitForStopEvent(timeoutMs) {
       const idx = _stopResolvers.indexOf(resolver);
       if (idx !== -1)
         _stopResolvers.splice(idx, 1);
-      logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
-      resolve(false);
+      const lastStop = getLastStopEventBody();
+      if (lastStop) {
+        logger.info(LOG, `Program already stopped: reason=${lastStop.reason}`);
+        resolve(true);
+      } else {
+        logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
+        resolve(false);
+      }
     }, timeoutMs);
     const resolver = (stopped) => {
       clearTimeout(timer);
@@ -1137,8 +1157,8 @@ var path3 = __toESM(require("path"));
 var fs3 = __toESM(require("fs"));
 init_logging();
 var LOG3 = "Breakpoints";
-function findBreakpointAtLocation(path6, line) {
-  const uri = vscode4.Uri.file(path6);
+function findBreakpointAtLocation(path7, line) {
+  const uri = vscode4.Uri.file(path7);
   return vscode4.debug.breakpoints.find((bp) => {
     if (bp instanceof vscode4.SourceBreakpoint) {
       return bp.location.uri.fsPath === uri.fsPath && bp.location.range.start.line === line - 1;
@@ -1638,7 +1658,35 @@ async function evaluate(session, params) {
   }
 }
 async function prettyPrint(session, params) {
-  return evaluate(session, { ...params, expression: params.expression });
+  const evalResult = await evaluate(session, params);
+  if (!evalResult.success) {
+    return {
+      success: false,
+      errorMessage: evalResult.errorMessage,
+      result: "",
+      variablesReference: 0
+    };
+  }
+  const base = {
+    success: true,
+    result: evalResult.result,
+    type: evalResult.type,
+    variablesReference: evalResult.variablesReference
+  };
+  if (evalResult.variablesReference > 0) {
+    try {
+      const varsRes = await session.customRequest("variables", {
+        variablesReference: evalResult.variablesReference
+      });
+      base.fields = (varsRes.variables || []).map((v) => ({
+        name: v.name,
+        type: v.type || void 0,
+        value: typeof v.value === "string" ? v.value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "") : String(v.value ?? "")
+      }));
+    } catch {
+    }
+  }
+  return base;
 }
 async function whatis(session, params) {
   return evaluate(session, {
@@ -1755,12 +1803,29 @@ async function switchThread(session, threadId) {
   }
 }
 async function continueExecution(session) {
-  return executeNavigationCommand(
+  const result = await executeNavigationCommand(
     session,
     "continue",
     "continue",
     CONTINUE_TIMEOUT_MS
   );
+  if (result.success && result.stopReason) {
+    const crashReasons = ["exception", "signal", "breakpoint"];
+    if (crashReasons.includes(result.stopReason)) {
+      logger.info(LOG5, `Program stopped: ${result.stopReason}`);
+      try {
+        const stackTrace = await getStackTrace(session);
+        result.crashInfo = {
+          reason: result.stopReason,
+          description: result.description || "Unknown error",
+          stackTrace
+        };
+      } catch (e) {
+        logger.warn(LOG5, `Failed to get crash info: ${e.message}`);
+      }
+    }
+  }
+  return result;
 }
 async function nextStep(session) {
   return executeNavigationCommand(session, "next", "next", STEP_TIMEOUT_MS);
@@ -1921,6 +1986,7 @@ var DebugController = class {
       get_active_breakpoints: () => getActiveBreakpoints(),
       get_data_breakpoint_info: (args) => getDataBreakpointInfo(ensureActiveSession("get_data_breakpoint_info"), args),
       set_data_breakpoint: (args) => setDataBreakpoint(args),
+      watch: (args) => this.watchVariable(args),
       // Hardware & Thread Management (Phase 3)
       list_threads: () => listThreads(ensureActiveSession("list_threads")),
       switch_thread: (args) => switchThread(ensureActiveSession("switch_thread"), args.threadId),
@@ -1935,9 +2001,11 @@ var DebugController = class {
       goto_frame: (args) => gotoFrame(ensureActiveSession("goto_frame"), args),
       get_source: (args) => getSource(ensureActiveSession("get_source"), args),
       // State Inspection & Evaluation $DD-1.4
+      // Default scopeFilter to "Locals" only so ai_vars shows local vars distinct from args.
+      // Callers may override by passing explicit scopeFilter in params.
       get_stack_frame_variables: (args) => getStackFrameVariables(
         ensureActiveSession("get_stack_frame_variables"),
-        args || {}
+        { scopeFilter: ["Locals", "Local"], ...args }
       ),
       get_args: (args) => this.getArgs(args || {}),
       evaluate: (args) => evaluate(ensureActiveSession("evaluate"), args),
@@ -2098,9 +2166,82 @@ var DebugController = class {
     const session = ensureActiveSession("get_args");
     const result = await getStackFrameVariables(session, {
       frameId: params.frameId,
-      scopeFilter: ["Arguments", "Args", "Parameters", "Locals"]
+      scopeFilter: ["Arguments", "Args", "Parameters"]
     });
+    if (result.success && result.scopes.every((s) => s.variables.length === 0)) {
+      return getStackFrameVariables(session, {
+        frameId: params.frameId,
+        scopeFilter: ["Locals", "Local"]
+      });
+    }
     return result;
+  }
+  async watchVariable(params) {
+    const session = ensureActiveSession("watch");
+    const accessType = params.accessType || "write";
+    const frameId = getCurrentTopFrameId();
+    if (frameId === void 0) {
+      return { success: false, errorMessage: "No frame available. Ensure debugger is stopped at a breakpoint." };
+    }
+    let scopeRef;
+    try {
+      const scopesRes = await session.customRequest("scopes", { frameId });
+      for (const scope of scopesRes.scopes || []) {
+        if (scope.expensive)
+          continue;
+        const varsRes = await session.customRequest("variables", {
+          variablesReference: scope.variablesReference
+        });
+        const found = (varsRes.variables || []).find((v) => v.name === params.name);
+        if (found) {
+          scopeRef = scope.variablesReference;
+          break;
+        }
+      }
+    } catch (e) {
+      return { success: false, errorMessage: `Cannot get variables: ${e.message}` };
+    }
+    if (scopeRef === void 0) {
+      return {
+        success: false,
+        errorMessage: `Variable '${params.name}' not found in current scope. Ensure the debugger is stopped at a frame where it is visible.`
+      };
+    }
+    const infoResult = await getDataBreakpointInfo(session, {
+      name: params.name,
+      variablesReference: scopeRef
+    });
+    if (!infoResult.success || !infoResult.dataId) {
+      return {
+        success: false,
+        errorMessage: infoResult.errorMessage || `Watchpoint not supported for '${params.name}'. Check that your debug adapter supports data breakpoints.`
+      };
+    }
+    try {
+      const bpResult = await setDataBreakpoint({
+        dataId: infoResult.dataId,
+        accessType,
+        condition: params.condition
+      });
+      if (bpResult.success) {
+        return { ...bpResult, dataId: infoResult.dataId, accessType };
+      }
+    } catch {
+    }
+    const gdbCmd = accessType === "read" ? `rwatch ${params.name}` : accessType === "readWrite" ? `awatch ${params.name}` : `watch ${params.name}`;
+    try {
+      const res = await session.customRequest("evaluate", {
+        expression: gdbCmd,
+        frameId,
+        context: "repl"
+      });
+      if (res.result && !res.result.toLowerCase().includes("error")) {
+        return { success: true, method: "gdb", command: gdbCmd, result: res.result, accessType };
+      }
+      return { success: false, errorMessage: res.result || `GDB '${gdbCmd}' returned no result` };
+    } catch (e) {
+      return { success: false, errorMessage: `Failed to set watchpoint: ${e.message}` };
+    }
   }
   async getLastStopInfo() {
     const body = getLastStopEventBody();
@@ -2418,6 +2559,14 @@ var lspService = new LspService();
 
 // src/server/router.ts
 init_logging();
+var PKG_VERSION = (() => {
+  try {
+    const pkgPath = path5.join(__dirname, "..", "package.json");
+    return JSON.parse(fs5.readFileSync(pkgPath, "utf8")).version;
+  } catch {
+    return "unknown";
+  }
+})();
 var LOG11 = "Router";
 async function handleRequest(method, url, body, _req) {
   const parsedUrl = new URL(url, "http://localhost");
@@ -2445,7 +2594,7 @@ async function handleSystemRouting(method, pathname) {
         success: true,
         data: {
           message: "pong",
-          version: "0.1.2-beta",
+          version: PKG_VERSION,
           operations: debugController.getOperations()
         },
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
@@ -2459,7 +2608,7 @@ async function handleSystemRouting(method, pathname) {
       body: {
         success: true,
         data: {
-          version: "0.1.2-beta",
+          version: PKG_VERSION,
           hasActiveSession: !!activeSession,
           sessionId: activeSession?.id || null,
           sessionName: activeSession?.name || null
@@ -2500,8 +2649,12 @@ async function handleLspRouting(method, pathname, parsedUrl) {
     const fsPath = parsedUrl.searchParams.get("fsPath");
     if (!fsPath)
       return { statusCode: 400, body: { success: false, error: "Missing fsPath" } };
-    const symbols = await lspService.getDocumentSymbols(fsPath);
-    return { statusCode: 200, body: { success: true, data: symbols } };
+    try {
+      const symbols = await lspService.getDocumentSymbols(fsPath);
+      return { statusCode: 200, body: { success: true, data: symbols } };
+    } catch (e) {
+      return { statusCode: 500, body: { success: false, error: e.message } };
+    }
   }
   if (pathname === "/api/references") {
     const fsPath = parsedUrl.searchParams.get("fsPath");
@@ -2509,8 +2662,12 @@ async function handleLspRouting(method, pathname, parsedUrl) {
     const char = parseInt(parsedUrl.searchParams.get("character") || "-1");
     if (!fsPath || line < 0 || char < 0)
       return { statusCode: 400, body: { success: false, error: "Missing params" } };
-    const refs = await lspService.getReferences(fsPath, line, char);
-    return { statusCode: 200, body: { success: true, data: refs } };
+    try {
+      const refs = await lspService.getReferences(fsPath, line, char);
+      return { statusCode: 200, body: { success: true, data: refs } };
+    } catch (e) {
+      return { statusCode: 500, body: { success: false, error: e.message } };
+    }
   }
   if (pathname === "/api/call-hierarchy") {
     const fsPath = parsedUrl.searchParams.get("fsPath");
@@ -2519,8 +2676,12 @@ async function handleLspRouting(method, pathname, parsedUrl) {
     const dir = parsedUrl.searchParams.get("direction") || "incoming";
     if (!fsPath || line < 0 || char < 0)
       return { statusCode: 400, body: { success: false, error: "Missing params" } };
-    const calls = dir === "outgoing" ? await lspService.getCallHierarchyOutgoing(fsPath, line, char) : await lspService.getCallHierarchyIncoming(fsPath, line, char);
-    return { statusCode: 200, body: { success: true, data: calls } };
+    try {
+      const calls = dir === "outgoing" ? await lspService.getCallHierarchyOutgoing(fsPath, line, char) : await lspService.getCallHierarchyIncoming(fsPath, line, char);
+      return { statusCode: 200, body: { success: true, data: calls } };
+    } catch (e) {
+      return { statusCode: 500, body: { success: false, error: e.message } };
+    }
   }
   return null;
 }
@@ -2895,20 +3056,36 @@ function activate(context) {
   );
   context.subscriptions.push(
     vscode10.commands.registerCommand("ai-debug-proxy.installCLI", async () => {
-      const dest = vscode10.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!dest) {
-        vscode10.window.showErrorMessage(
-          "AI Debug Proxy: No workspace folder open."
-        );
-        return;
-      }
-      const src = path5.join(context.extensionPath, "resources", "ai-debug.sh");
-      const target = path5.join(dest, "ai-debug.sh");
+      const src = path6.join(context.extensionPath, "resources", "ai-debug.sh");
+      const installDir = path6.join(os.homedir(), ".local", "lib", "ai-debug-proxy");
+      const target = path6.join(installDir, "ai-debug.sh");
+      const sourceLine = `
+# AI Debug Proxy CLI
+source "${target}"
+`;
       try {
-        fs5.copyFileSync(src, target);
-        fs5.chmodSync(target, 493);
+        fs6.mkdirSync(installDir, { recursive: true });
+        fs6.copyFileSync(src, target);
+        fs6.chmodSync(target, 493);
+        const rcFiles = [
+          path6.join(os.homedir(), ".bashrc"),
+          path6.join(os.homedir(), ".zshrc")
+        ];
+        const sourceCheck = `source "${target}"`;
+        const appended = [];
+        for (const rc of rcFiles) {
+          try {
+            const content = fs6.existsSync(rc) ? fs6.readFileSync(rc, "utf8") : "";
+            if (!content.includes(sourceCheck)) {
+              fs6.appendFileSync(rc, sourceLine);
+              appended.push(path6.basename(rc));
+            }
+          } catch {
+          }
+        }
+        const rcMsg = appended.length > 0 ? ` Source line added to: ${appended.join(", ")}.` : " Source line already present in shell rc files.";
         const open = await vscode10.window.showInformationMessage(
-          `ai-debug.sh installed to workspace root. Usage: source ai-debug.sh && ai_launch <program>`,
+          `AI Debug CLI installed to ${target}.${rcMsg} Open a new terminal to use ai_launch, ai_bp, etc.`,
           "Open file"
         );
         if (open) {
@@ -2916,7 +3093,7 @@ function activate(context) {
         }
       } catch (e) {
         vscode10.window.showErrorMessage(
-          `AI Debug Proxy: Failed to install ai-debug.sh \u2014 ${e.message}`
+          `AI Debug Proxy: Failed to install CLI \u2014 ${e.message}`
         );
       }
     })

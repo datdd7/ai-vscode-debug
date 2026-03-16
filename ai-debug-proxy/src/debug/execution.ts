@@ -232,19 +232,40 @@ export async function switchThread(
  *
  * @param [in]  session   VS Code debug session.
  *
- * @return Navigation result.
+ * @return Navigation result with crash info if program crashed.
  *
  * [Satisfies $ARCH ARCH-2]
  */
 export async function continueExecution(
   session: vscode.DebugSession,
 ): Promise<NavigationResult> {
-  return executeNavigationCommand(
+  const result = await executeNavigationCommand(
     session,
     "continue",
     "continue",
     CONTINUE_TIMEOUT_MS,
   );
+  
+  // Auto-detect crash and attach crash info
+  if (result.success && result.stopReason) {
+    const crashReasons = ["exception", "signal", "breakpoint"];
+    if (crashReasons.includes(result.stopReason)) {
+      logger.info(LOG, `Program stopped: ${result.stopReason}`);
+      // Auto-attach stack trace for AI agents
+      try {
+        const stackTrace = await getStackTrace(session);
+        (result as any).crashInfo = {
+          reason: result.stopReason,
+          description: (result as any).description || "Unknown error",
+          stackTrace: stackTrace,
+        };
+      } catch (e: any) {
+        logger.warn(LOG, `Failed to get crash info: ${e?.message || 'Unknown error'}`);
+      }
+    }
+  }
+  
+  return result;
 }
 
 /**

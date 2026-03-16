@@ -247,8 +247,15 @@ export function waitForStopEvent(timeoutMs: number): Promise<boolean> {
     const timer = setTimeout(() => {
       const idx = _stopResolvers.indexOf(resolver);
       if (idx !== -1) _stopResolvers.splice(idx, 1);
-      logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
-      resolve(false);
+      // Check if program already stopped (crash detection)
+      const lastStop = getLastStopEventBody();
+      if (lastStop) {
+        logger.info(LOG, `Program already stopped: reason=${lastStop.reason}`);
+        resolve(true); // Already stopped, don't wait
+      } else {
+        logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
+        resolve(false);
+      }
     }, timeoutMs);
 
     const resolver: StopResolver = (stopped) => {
