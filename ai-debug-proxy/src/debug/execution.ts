@@ -151,21 +151,29 @@ async function executeNavigationCommand(
     const dapArgs: any = { threadId };
     await session.customRequest(dapCommand, dapArgs);
 
-    const stopped = await stopPromise;
+    const { stopped, reason } = await stopPromise;
 
     if (!stopped) {
+      if (reason === 'terminated' || reason === 'exited') {
+        logger.info(LOG, `${operationName}: Program ${reason}`);
+        return {
+          success: true,
+          stopReason: reason,
+          errorMessage: `Program ${reason}.`,
+        };
+      }
       logger.warn(
         LOG,
-        `${operationName} timeout: debugger may still be running`,
+        `${operationName} timeout: debugger may still be running or stalled`,
       );
       return {
         success: true,
-        stopReason: "running",
-        errorMessage: `${operationName} did not hit a stop event within ${timeoutMs}ms. Program may still be running.`,
+        stopReason: "timeout",
+        errorMessage: `${operationName} timeout (${timeoutMs}ms). Program may still be running.`,
       };
     }
 
-    return await buildNavigationResult(session, operationName);
+    return await buildNavigationResult(session, reason || operationName);
   } catch (e: any) {
     logger.error(LOG, `${operationName} failed: ${e.message}`);
     return {
@@ -245,7 +253,7 @@ export async function continueExecution(
     "continue",
     CONTINUE_TIMEOUT_MS,
   );
-  
+
   // Auto-detect crash and attach crash info
   if (result.success && result.stopReason) {
     const crashReasons = ["exception", "signal", "breakpoint"];
@@ -264,7 +272,7 @@ export async function continueExecution(
       }
     }
   }
-  
+
   return result;
 }
 
@@ -375,7 +383,10 @@ export async function jumpToLine(
       targetId: targets.targets[0].id,
     });
 
-    const stopped = await stopPromise;
+    const { stopped, reason } = await stopPromise;
+    if (!stopped && (reason === 'terminated' || reason === 'exited')) {
+      return { success: true, stopReason: reason, errorMessage: `Program ${reason}` };
+    }
     return await buildNavigationResult(session, stopped ? "jump" : "running");
   } catch (e: any) {
     logger.error(LOG, `${operationName} failed: ${e.message}`);

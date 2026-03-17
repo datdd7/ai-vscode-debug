@@ -543,6 +543,7 @@ function validateOperationArgs(operation, args) {
     }
     case "get_stack_frame_variables":
     case "get_args":
+    case "list_all_locals":
       return ok(args || {});
     case "evaluate":
     case "pretty_print":
@@ -763,10 +764,10 @@ init_logging();
 var LOG = "Events";
 var _sessionState = /* @__PURE__ */ new Map();
 var _stopResolvers = [];
-function resolveWaitPromise(stopped = true) {
+function resolveWaitPromise(stopped = true, reason) {
   const resolvers = _stopResolvers.splice(0);
   for (const resolve of resolvers)
-    resolve(stopped);
+    resolve({ stopped, reason });
 }
 function getCurrentTopFrameId(sessionId) {
   if (sessionId)
@@ -819,15 +820,15 @@ function waitForStopEvent(timeoutMs) {
       const lastStop = getLastStopEventBody();
       if (lastStop) {
         logger.info(LOG, `Program already stopped: reason=${lastStop.reason}`);
-        resolve(true);
+        resolve({ stopped: true, reason: lastStop.reason });
       } else {
         logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
-        resolve(false);
+        resolve({ stopped: false, reason: "timeout" });
       }
     }, timeoutMs);
-    const resolver = (stopped) => {
+    const resolver = (result) => {
       clearTimeout(timer);
-      resolve(stopped);
+      resolve(result);
     };
     _stopResolvers.push(resolver);
   });
@@ -852,7 +853,7 @@ var DapStopTracker = class {
         const state = _sessionState.get(this.session.id) ?? {};
         state.lastStopBody = body;
         _sessionState.set(this.session.id, state);
-        resolveWaitPromise(true);
+        resolveWaitPromise(true, body.reason);
         for (const cb of stopEventCallbacks) {
           try {
             cb(this.session.id, body);
@@ -862,7 +863,7 @@ var DapStopTracker = class {
         }
       } else if (message.event === "terminated" || message.event === "exited") {
         logger.debug(LOG, `Program ${message.event} (Tracker)`);
-        resolveWaitPromise(true);
+        resolveWaitPromise(false, message.event);
       }
     }
   }
@@ -882,7 +883,7 @@ function registerDebugEventListeners(context) {
   context.subscriptions.push(
     vscode2.debug.onDidTerminateDebugSession((session) => {
       logger.info(LOG, `Session terminated: ${session.name} [${session.id}]`);
-      resolveWaitPromise(true);
+      resolveWaitPromise(false, "terminated");
       _sessionState.delete(session.id);
       clearLastSession();
     })
@@ -1521,6 +1522,30 @@ async function getStackFrameVariables(session, params) {
     return { success: false, errorMessage: e.message, scopes: [] };
   }
 }
+async function listAllLocals(session, frameId) {
+  try {
+    const res = await getStackFrameVariables(session, {
+      frameId,
+      scopeFilter: ["Locals", "Local", "Arguments", "Args", "Parameters"]
+    });
+    if (!res.success) {
+      return { success: false, variables: [], errorMessage: res.errorMessage };
+    }
+    const allVars = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const scope of res.scopes) {
+      for (const v of scope.variables) {
+        if (!seen.has(v.name)) {
+          allVars.push(v);
+          seen.add(v.name);
+        }
+      }
+    }
+    return { success: true, variables: allVars };
+  } catch (e) {
+    return { success: false, variables: [], errorMessage: e.message };
+  }
+}
 async function listSource(session, params) {
   const frameId = params.frameId ?? getCurrentTopFrameId();
   if (frameId === void 0) {
@@ -1613,6 +1638,14 @@ async function evaluate(session, params) {
       frameId,
       context: params.context || "watch"
     });
+    if (params.raw) {
+      return {
+        success: true,
+        result: res.result,
+        type: res.type,
+        variablesReference: res.variablesReference || 0
+      };
+    }
     if (res.result && typeof res.result === "string") {
       const result = res.result;
       if (result.includes("-var-create") || result.includes("unable to create variable") || result.includes("No symbol") || result.includes("not available")) {
@@ -1640,6 +1673,14 @@ async function evaluate(session, params) {
       variablesReference: res.variablesReference || 0
     };
   } catch (e) {
+    if (params.raw) {
+      return {
+        success: false,
+        errorMessage: e.message,
+        result: "",
+        variablesReference: 0
+      };
+    }
     let errorMessage = e.message;
     if (errorMessage.includes("-var-create")) {
       errorMessage = `Cannot evaluate expression '${params.expression}'. Variable may be optimized out or not in current scope.`;
@@ -1763,19 +1804,27 @@ async function executeNavigationCommand(session, dapCommand, operationName, time
     const stopPromise = waitForStopEvent(timeoutMs);
     const dapArgs = { threadId };
     await session.customRequest(dapCommand, dapArgs);
-    const stopped = await stopPromise;
+    const { stopped, reason } = await stopPromise;
     if (!stopped) {
+      if (reason === "terminated" || reason === "exited") {
+        logger.info(LOG5, `${operationName}: Program ${reason}`);
+        return {
+          success: true,
+          stopReason: reason,
+          errorMessage: `Program ${reason}.`
+        };
+      }
       logger.warn(
         LOG5,
-        `${operationName} timeout: debugger may still be running`
+        `${operationName} timeout: debugger may still be running or stalled`
       );
       return {
         success: true,
-        stopReason: "running",
-        errorMessage: `${operationName} did not hit a stop event within ${timeoutMs}ms. Program may still be running.`
+        stopReason: "timeout",
+        errorMessage: `${operationName} timeout (${timeoutMs}ms). Program may still be running.`
       };
     }
-    return await buildNavigationResult(session, operationName);
+    return await buildNavigationResult(session, reason || operationName);
   } catch (e) {
     logger.error(LOG5, `${operationName} failed: ${e.message}`);
     return {
@@ -1821,7 +1870,7 @@ async function continueExecution(session) {
           stackTrace
         };
       } catch (e) {
-        logger.warn(LOG5, `Failed to get crash info: ${e.message}`);
+        logger.warn(LOG5, `Failed to get crash info: ${e?.message || "Unknown error"}`);
       }
     }
   }
@@ -1870,7 +1919,10 @@ async function jumpToLine(session, params) {
       threadId,
       targetId: targets.targets[0].id
     });
-    const stopped = await stopPromise;
+    const { stopped, reason } = await stopPromise;
+    if (!stopped && (reason === "terminated" || reason === "exited")) {
+      return { success: true, stopReason: reason, errorMessage: `Program ${reason}` };
+    }
     return await buildNavigationResult(session, stopped ? "jump" : "running");
   } catch (e) {
     logger.error(LOG5, `${operationName} failed: ${e.message}`);
@@ -2007,6 +2059,7 @@ var DebugController = class {
         ensureActiveSession("get_stack_frame_variables"),
         { scopeFilter: ["Locals", "Local"], ...args }
       ),
+      list_all_locals: (args) => listAllLocals(ensureActiveSession("list_all_locals"), args?.frameId),
       get_args: (args) => this.getArgs(args || {}),
       evaluate: (args) => evaluate(ensureActiveSession("evaluate"), args),
       pretty_print: (args) => prettyPrint(ensureActiveSession("pretty_print"), args),
@@ -2166,7 +2219,7 @@ var DebugController = class {
     const session = ensureActiveSession("get_args");
     const result = await getStackFrameVariables(session, {
       frameId: params.frameId,
-      scopeFilter: ["Arguments", "Args", "Parameters"]
+      scopeFilter: params.scopeFilter || ["Arguments", "Args", "Parameters"]
     });
     if (result.success && result.scopes.every((s) => s.variables.length === 0)) {
       return getStackFrameVariables(session, {

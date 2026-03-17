@@ -229,6 +229,7 @@ export interface EvaluateParams {
   frameId?: number; /**< Stack frame context. */
   expression: string; /**< Expression to evaluate. */
   context?: "watch" | "repl" | "hover"; /**< Evaluation context. */
+  raw?: boolean; /**< Return raw string format without parser heuristics. */
 }
 
 /** @brief Parameters for executing a statement. */
@@ -348,6 +349,12 @@ export interface WatchParams {
 export interface GetLastStopInfoResult extends DebuggerResponse {
   sessionId?: string; /**< Session associated with the stop. */
   stopInfo?: any; /**< Raw DAP stop event body. */
+}
+
+/** @brief Result of waiting for a stop event. */
+export interface StopEventResult {
+  stopped: boolean; /**< True if stopped normally, false if timed out or exited. */
+  reason?: string; /**< Reason for the early termination. */
 }
 
 /******************************************************************************

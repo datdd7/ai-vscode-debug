@@ -214,6 +214,49 @@ export async function getStackFrameVariables(
   }
 }
 
+/**
+ * @brief Get a consolidated list of all local variables and arguments.
+ *
+ * Merges "Locals" and "Arguments" scopes into a single flat list for
+ * easier AI consumption.
+ *
+ * @param [in]  session   VS Code debug session.
+ * @param [in]  frameId   Stack frame context.
+ *
+ * @return Promise resolving to a list of variables.
+ */
+export async function listAllLocals(
+  session: vscode.DebugSession,
+  frameId?: number,
+): Promise<{ success: boolean; variables: any[]; errorMessage?: string }> {
+  try {
+    const res = await getStackFrameVariables(session, {
+      frameId,
+      scopeFilter: ["Locals", "Local", "Arguments", "Args", "Parameters"],
+    });
+
+    if (!res.success) {
+      return { success: false, variables: [], errorMessage: res.errorMessage };
+    }
+
+    const allVars: any[] = [];
+    const seen = new Set<string>();
+
+    for (const scope of res.scopes) {
+      for (const v of scope.variables) {
+        if (!seen.has(v.name)) {
+          allVars.push(v);
+          seen.add(v.name);
+        }
+      }
+    }
+
+    return { success: true, variables: allVars };
+  } catch (e: any) {
+    return { success: false, variables: [], errorMessage: e.message };
+  }
+}
+
 /******************************************************************************
  * Public Interface - Source Tools
  ******************************************************************************/
@@ -390,15 +433,24 @@ export async function evaluate(
       context: params.context || "watch",
     });
 
+    if (params.raw) {
+      return {
+        success: true,
+        result: res.result,
+        type: res.type,
+        variablesReference: res.variablesReference || 0,
+      };
+    }
+
     // Check if result contains GDB error messages (returned as "successful" responses)
     if (res.result && typeof res.result === 'string') {
       const result = res.result;
 
       // Detect GDB error messages in result
       if (result.includes("-var-create") ||
-          result.includes("unable to create variable") ||
-          result.includes("No symbol") ||
-          result.includes("not available")) {
+        result.includes("unable to create variable") ||
+        result.includes("No symbol") ||
+        result.includes("not available")) {
 
         let errorMessage = `Cannot evaluate expression '${params.expression}'.`;
 
@@ -428,6 +480,15 @@ export async function evaluate(
       variablesReference: res.variablesReference || 0,
     };
   } catch (e: any) {
+    if (params.raw) {
+      return {
+        success: false,
+        errorMessage: e.message,
+        result: "",
+        variablesReference: 0,
+      };
+    }
+
     // Provide user-friendly error messages instead of raw backend errors
     let errorMessage = e.message;
 

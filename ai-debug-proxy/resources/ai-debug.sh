@@ -273,7 +273,16 @@ ai_continue() {
         local pos stop_reason
         pos=$(printf '%s' "$result" | jq -r 'if .data.frame then "→ \(.data.frame.sourcePath | gsub("vscode-remote://[^/]+"; "") | split("/") | last):\(.data.frame.line)" else empty end' 2>/dev/null)
         stop_reason=$(printf '%s' "$result" | jq -r '.data.stopReason // empty' 2>/dev/null)
-        if [[ -n "$pos" ]]; then
+        
+        if [[ "$stop_reason" == "exception" || "$stop_reason" == "signal" ]]; then
+            _ai_error "Program stopped due to a crash ($stop_reason)"
+            local crash_desc
+            crash_desc=$(printf '%s' "$result" | jq -r '.data.crashInfo.description // empty' 2>/dev/null)
+            if [[ -n "$crash_desc" ]]; then
+                echo "Reason: $crash_desc"
+            fi
+            if [[ -n "$pos" ]]; then echo "At: $pos"; fi
+        elif [[ -n "$pos" ]]; then
             echo "$pos"
         elif [[ "$stop_reason" == "running" ]]; then
             _ai_warn "Program resumed — no breakpoint hit, session may still be running"
@@ -300,7 +309,16 @@ ai_next() {
         local pos stop_reason
         pos=$(printf '%s' "$result" | jq -r 'if .data.frame then "→ \(.data.frame.sourcePath | gsub("vscode-remote://[^/]+"; "") | split("/") | last):\(.data.frame.line)" else empty end' 2>/dev/null)
         stop_reason=$(printf '%s' "$result" | jq -r '.data.stopReason // empty' 2>/dev/null)
-        if [[ -n "$pos" ]]; then
+        
+        if [[ "$stop_reason" == "exception" || "$stop_reason" == "signal" ]]; then
+            _ai_error "Program stopped due to a crash ($stop_reason)"
+            local crash_desc
+            crash_desc=$(printf '%s' "$result" | jq -r '.data.crashInfo.description // empty' 2>/dev/null)
+            if [[ -n "$crash_desc" ]]; then
+                echo "Reason: $crash_desc"
+            fi
+            if [[ -n "$pos" ]]; then echo "At: $pos"; fi
+        elif [[ -n "$pos" ]]; then
             echo "$pos"
         elif [[ "$stop_reason" == "running" ]]; then
             _ai_warn "Program resumed — no breakpoint hit, session may still be running"
@@ -327,7 +345,16 @@ ai_step_in() {
         local pos stop_reason
         pos=$(printf '%s' "$result" | jq -r 'if .data.frame then "→ \(.data.frame.sourcePath | gsub("vscode-remote://[^/]+"; "") | split("/") | last):\(.data.frame.line)" else empty end' 2>/dev/null)
         stop_reason=$(printf '%s' "$result" | jq -r '.data.stopReason // empty' 2>/dev/null)
-        if [[ -n "$pos" ]]; then
+        
+        if [[ "$stop_reason" == "exception" || "$stop_reason" == "signal" ]]; then
+            _ai_error "Program stopped due to a crash ($stop_reason)"
+            local crash_desc
+            crash_desc=$(printf '%s' "$result" | jq -r '.data.crashInfo.description // empty' 2>/dev/null)
+            if [[ -n "$crash_desc" ]]; then
+                echo "Reason: $crash_desc"
+            fi
+            if [[ -n "$pos" ]]; then echo "At: $pos"; fi
+        elif [[ -n "$pos" ]]; then
             echo "$pos"
         elif [[ "$stop_reason" == "running" ]]; then
             _ai_warn "Program resumed — no breakpoint hit, session may still be running"
@@ -354,7 +381,16 @@ ai_step_out() {
         local pos stop_reason
         pos=$(printf '%s' "$result" | jq -r 'if .data.frame then "→ \(.data.frame.sourcePath | gsub("vscode-remote://[^/]+"; "") | split("/") | last):\(.data.frame.line)" else empty end' 2>/dev/null)
         stop_reason=$(printf '%s' "$result" | jq -r '.data.stopReason // empty' 2>/dev/null)
-        if [[ -n "$pos" ]]; then
+        
+        if [[ "$stop_reason" == "exception" || "$stop_reason" == "signal" ]]; then
+            _ai_error "Program stopped due to a crash ($stop_reason)"
+            local crash_desc
+            crash_desc=$(printf '%s' "$result" | jq -r '.data.crashInfo.description // empty' 2>/dev/null)
+            if [[ -n "$crash_desc" ]]; then
+                echo "Reason: $crash_desc"
+            fi
+            if [[ -n "$pos" ]]; then echo "At: $pos"; fi
+        elif [[ -n "$pos" ]]; then
             echo "$pos"
         elif [[ "$stop_reason" == "running" ]]; then
             _ai_warn "Program resumed — no breakpoint hit, session may still be running"
@@ -491,19 +527,52 @@ ai_vars() {
     fi
 }
 
+# Get all local variables and arguments (consolidated)
+# Usage: ai_locals [frameId]
+ai_locals() {
+    local frame_id=$1
+    local params="{}"
+
+    if [[ -n "$frame_id" ]]; then
+        params="{\"frameId\":$frame_id}"
+    fi
+
+    _ai_info "Getting local variables..."
+    local result
+    result=$(_ai_debug_op "list_all_locals" "$params")
+
+    if [[ $? -eq 0 ]]; then
+        printf '%s' "$result" | jq '.data.variables'
+    else
+        local reason
+        reason=$(printf '%s' "$result" | jq -r '.error // .data.errorMessage // empty' 2>/dev/null)
+        _ai_error "Failed to get locals${reason:+ — $reason}"
+        return 1
+    fi
+}
+
 # Evaluate expression
-# Usage: ai_eval <expression>
+# Usage: ai_eval [-r|--raw] <expression>
 ai_eval() {
-    local expression=$1
+    local raw=false
+    local expression=""
+
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            -r|--raw) raw=true ;;
+            *) expression=$1 ;;
+        esac
+        shift
+    done
     
     if [[ -z "$expression" ]]; then
-        _ai_error "Usage: ai_eval <expression>"
+        _ai_error "Usage: ai_eval [-r|--raw] <expression>"
         return 1
     fi
     
-    _ai_info "Evaluating: $expression"
+    _ai_info "Evaluating: $expression (raw=$raw)"
     local result
-    result=$(_ai_debug_op "evaluate" "{\"expression\":\"$expression\"}")
+    result=$(_ai_debug_op "evaluate" "{\"expression\":\"$expression\",\"raw\":$raw}")
     
     if [[ $? -eq 0 ]]; then
         printf '%s' "$result" | jq -r '.data.result // .error'
@@ -980,7 +1049,8 @@ Breakpoints:
 
 Inspection:
   ai_stack               Get stack trace
-  ai_vars [frameId]      Get variables
+  ai_vars [frameId]      Get variables (all scopes)
+  ai_locals [frameId]    Get only local variables & args
   ai_args                Get function arguments
   ai_source [lines]      List source code
   ai_eval <expr>         Evaluate expression

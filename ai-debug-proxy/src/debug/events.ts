@@ -43,6 +43,7 @@
 import * as vscode from "vscode";
 import { logger } from "../utils/logging";
 import { clearLastSession } from "./session";
+import { StopEventResult } from "../types";
 
 /******************************************************************************
  * Constants
@@ -59,7 +60,7 @@ interface SessionDebugState {
 const _sessionState = new Map<string, SessionDebugState>();
 
 // --- Stop event waiters (array to support concurrent callers) ---
-type StopResolver = (stopped: boolean) => void;
+type StopResolver = (result: StopEventResult) => void;
 const _stopResolvers: StopResolver[] = [];
 
 /******************************************************************************
@@ -70,10 +71,11 @@ const _stopResolvers: StopResolver[] = [];
  * @brief Resolve all pending stop event waiters.
  *
  * @param [in]  stopped     Whether the stop was successful.
+ * @param [in]  reason      Optional reason for the stop or exit.
  */
-export function resolveWaitPromise(stopped: boolean = true): void {
+export function resolveWaitPromise(stopped: boolean = true, reason?: string): void {
   const resolvers = _stopResolvers.splice(0);
-  for (const resolve of resolvers) resolve(stopped);
+  for (const resolve of resolvers) resolve({ stopped, reason });
 }
 
 /******************************************************************************
@@ -242,8 +244,8 @@ export function clearLastStopEvent(sessionId?: string): void {
  *
  * [Satisfies $ARCH ARCH-4]
  */
-export function waitForStopEvent(timeoutMs: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+export function waitForStopEvent(timeoutMs: number): Promise<StopEventResult> {
+  return new Promise<StopEventResult>((resolve) => {
     const timer = setTimeout(() => {
       const idx = _stopResolvers.indexOf(resolver);
       if (idx !== -1) _stopResolvers.splice(idx, 1);
@@ -251,16 +253,16 @@ export function waitForStopEvent(timeoutMs: number): Promise<boolean> {
       const lastStop = getLastStopEventBody();
       if (lastStop) {
         logger.info(LOG, `Program already stopped: reason=${lastStop.reason}`);
-        resolve(true); // Already stopped, don't wait
+        resolve({ stopped: true, reason: lastStop.reason }); // Already stopped, don't wait
       } else {
         logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
-        resolve(false);
+        resolve({ stopped: false, reason: 'timeout' });
       }
     }, timeoutMs);
 
-    const resolver: StopResolver = (stopped) => {
+    const resolver: StopResolver = (result) => {
       clearTimeout(timer);
-      resolve(stopped);
+      resolve(result);
     };
     _stopResolvers.push(resolver);
   });
@@ -307,7 +309,7 @@ class DapStopTracker implements vscode.DebugAdapterTracker {
         state.lastStopBody = body;
         _sessionState.set(this.session.id, state);
 
-        resolveWaitPromise(true);
+        resolveWaitPromise(true, body.reason);
 
         for (const cb of stopEventCallbacks) {
           try {
@@ -318,7 +320,7 @@ class DapStopTracker implements vscode.DebugAdapterTracker {
         }
       } else if (message.event === "terminated" || message.event === "exited") {
         logger.debug(LOG, `Program ${message.event} (Tracker)`);
-        resolveWaitPromise(true);
+        resolveWaitPromise(false, message.event);
       }
     }
   }
@@ -364,7 +366,7 @@ export function registerDebugEventListeners(
   context.subscriptions.push(
     vscode.debug.onDidTerminateDebugSession((session) => {
       logger.info(LOG, `Session terminated: ${session.name} [${session.id}]`);
-      resolveWaitPromise(true);
+      resolveWaitPromise(false, "terminated");
       _sessionState.delete(session.id);
       clearLastSession();
     }),

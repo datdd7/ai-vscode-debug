@@ -227,6 +227,7 @@ export function validateOperationArgs(
     // Variable/evaluation
     case "get_stack_frame_variables":
     case "get_args":
+    case "list_all_locals":
       return ok(args || {});
 
     case "evaluate":
@@ -305,7 +306,7 @@ export function validateOperationArgs(
         return fail("'watch' requires 'name' (string)");
       }
       if (args.accessType !== undefined &&
-          !["read", "write", "readWrite"].includes(args.accessType)) {
+        !["read", "write", "readWrite"].includes(args.accessType)) {
         return fail("'watch' accessType must be 'read', 'write', or 'readWrite'");
       }
       return ok(args);

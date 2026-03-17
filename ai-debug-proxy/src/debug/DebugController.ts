@@ -84,6 +84,7 @@ import {
 import {
     getStackTrace,
     getStackFrameVariables,
+    listAllLocals,
     listSource,
     frameUp,
     frameDown,
@@ -209,6 +210,8 @@ class DebugController {
                     ensureActiveSession("get_stack_frame_variables"),
                     { scopeFilter: ["Locals", "Local"], ...args },
                 ),
+            list_all_locals: (args) =>
+                listAllLocals(ensureActiveSession("list_all_locals"), args?.frameId),
             get_args: (args) => this.getArgs(args || {}),
             evaluate: (args) => evaluate(ensureActiveSession("evaluate"), args),
             pretty_print: (args) =>
@@ -394,12 +397,12 @@ class DebugController {
         return continueExecution(session);
     }
 
-    private async getArgs(params: { frameId?: number }): Promise<any> {
+    private async getArgs(params: { frameId?: number; scopeFilter?: string[] }): Promise<any> {
         const session = ensureActiveSession("get_args");
         // Try dedicated argument scopes first (some adapters expose these separately)
         const result = await getStackFrameVariables(session, {
             frameId: params.frameId,
-            scopeFilter: ["Arguments", "Args", "Parameters"],
+            scopeFilter: params.scopeFilter || ["Arguments", "Args", "Parameters"],
         });
         // cppdbg puts everything in "Locals" — fall back when no argument scope found
         if (result.success && result.scopes.every((s) => s.variables.length === 0)) {
@@ -479,7 +482,7 @@ class DebugController {
         // Bypass our evaluate() wrapper (which filters GDB output) and call DAP directly.
         const gdbCmd = accessType === "read" ? `rwatch ${params.name}`
             : accessType === "readWrite" ? `awatch ${params.name}`
-            : `watch ${params.name}`;
+                : `watch ${params.name}`;
         try {
             const res = await session.customRequest("evaluate", {
                 expression: gdbCmd,
