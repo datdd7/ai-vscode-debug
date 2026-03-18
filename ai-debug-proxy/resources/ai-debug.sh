@@ -552,28 +552,37 @@ ai_locals() {
 }
 
 # Evaluate expression
-# Usage: ai_eval [-r|--raw] <expression>
+# Usage: ai_eval [-r|--raw] [-a|--auto-frame] <expression>
 ai_eval() {
     local raw=false
+    local auto_frame=false
     local expression=""
 
     while [[ "$#" -gt 0 ]]; do
         case $1 in
             -r|--raw) raw=true ;;
+            -a|--auto-frame) auto_frame=true ;;
             *) expression=$1 ;;
         esac
         shift
     done
-    
+
     if [[ -z "$expression" ]]; then
-        _ai_error "Usage: ai_eval [-r|--raw] <expression>"
+        _ai_error "Usage: ai_eval [-r|--raw] [-a|--auto-frame] <expression>"
         return 1
     fi
+
+    _ai_info "Evaluating: $expression (raw=$raw, auto_frame=$auto_frame)"
     
-    _ai_info "Evaluating: $expression (raw=$raw)"
+    local params="{\"expression\":\"$expression\",\"raw\":$raw"
+    if [[ "$auto_frame" == "true" ]]; then
+        params="$params,\"autoFrame\":true"
+    fi
+    params="$params}"
+    
     local result
-    result=$(_ai_debug_op "evaluate" "{\"expression\":\"$expression\",\"raw\":$raw}")
-    
+    result=$(_ai_debug_op "evaluate" "$params")
+
     if [[ $? -eq 0 ]]; then
         printf '%s' "$result" | jq -r '.data.result // .error'
     else
@@ -1032,6 +1041,9 @@ Session Management:
   ai_launch <prog>       Launch debug session
   ai_quit                End debug session
   ai_restart             Restart session
+  ai_session_state       Get current session state (NEW)
+  ai_set_context         Set thread/frame context (NEW)
+  ai_context             Get full context snapshot (NEW)
 
 Execution Control:
   ai_continue            Continue execution
@@ -1053,10 +1065,13 @@ Inspection:
   ai_locals [frameId]    Get only local variables & args
   ai_args                Get function arguments
   ai_source [lines]      List source code
-  ai_eval <expr>         Evaluate expression
+  ai_eval [-a] <expr>    Evaluate expression (-a=auto-frame) (NEW)
   ai_pretty <expr>       Pretty print variable
   ai_type <expr>         Get type of expression
   ai_last_stop           Get last stop info
+  ai_watch_suggest       Get variable watch suggestions (NEW)
+  ai_watch_auto_enable   Enable auto-watch (NEW)
+  ai_watch_auto_disable  Disable auto-watch (NEW)
 
 Advanced:
   ai_threads             List threads
@@ -1079,9 +1094,258 @@ Examples:
   ai_continue
   ai_stack
   ai_eval "my_variable"
+  ai_session_state
+  ai_context --depth 5
+  ai_context --include stack,variables
+  ai_watch_suggest
+  ai_watch_auto_enable
+  ai_set_context --thread 1 --frame 0
   ai_quit
 
 EOF
+}
+
+# Get session state (NEW: Smart Default Context)
+# Usage: ai_session_state
+ai_session_state() {
+    _ai_info "Getting session state..."
+    
+    local response
+    response=$(curl -s -X GET "$AI_DEBUG_URL/api/session/state" --max-time 5 2>/dev/null)
+    
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "$AI_DEBUG_URL/api/session/state" --max-time 5 2>/dev/null)
+    
+    if [[ "$http_code" -eq 000 ]]; then
+        _ai_error "Cannot connect to debug proxy"
+        return 1
+    fi
+    
+    local success
+    success=$(printf '%s' "$response" | jq -r '.success // empty' 2>/dev/null)
+    
+    if [[ "$success" == "true" ]]; then
+        printf '%s' "$response" | jq .
+    else
+        local reason
+        reason=$(printf '%s' "$response" | jq -r '.error // empty' 2>/dev/null)
+        _ai_error "Failed to get session state${reason:+ — $reason}"
+        return 1
+    fi
+}
+
+# Get full context snapshot (NEW: Auto-Context Snapshot)
+# Usage: ai_context [--depth N] [--include sections] [--format json|pretty]
+ai_context() {
+    local depth=""
+    local include=""
+    local format="pretty"
+    
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            -d|--depth) depth="$2"; shift 2 ;;
+            -i|--include) include="$2"; shift 2 ;;
+            -f|--format) format="$2"; shift 2 ;;
+            *) _ai_error "Unknown option: $1"; return 1 ;;
+        esac
+        shift
+    done
+    
+    _ai_info "Getting context snapshot (depth=$depth, include=$include)..."
+    
+    # Build query string
+    local query_params=""
+    if [[ -n "$depth" ]]; then
+        query_params="depth=$depth"
+    fi
+    if [[ -n "$include" ]]; then
+        if [[ -n "$query_params" ]]; then
+            query_params="$query_params&include=$include"
+        else
+            query_params="include=$include"
+        fi
+    fi
+    
+    local url="$AI_DEBUG_URL/api/context"
+    if [[ -n "$query_params" ]]; then
+        url="$url?$query_params"
+    fi
+    
+    local response
+    response=$(curl -s -X GET "$url" --max-time 30 2>/dev/null)
+    
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "$url" --max-time 30 2>/dev/null)
+    
+    if [[ "$http_code" -eq 000 ]]; then
+        _ai_error "Cannot connect to debug proxy"
+        return 1
+    fi
+    
+    local success
+    success=$(printf '%s' "$response" | jq -r '.success // empty' 2>/dev/null)
+    
+    if [[ "$success" == "true" ]]; then
+        if [[ "$format" == "pretty" ]]; then
+            printf '%s' "$response" | jq .
+        else
+            printf '%s' "$response"
+        fi
+        
+        # Show metadata
+        local latency
+        latency=$(printf '%s' "$response" | jq -r '.data.metadata.latencyMs // "N/A"')
+        _ai_success "Context retrieved in ${latency}ms"
+    else
+        local reason
+        reason=$(printf '%s' "$response" | jq -r '.error // .data.errorMessage // empty' 2>/dev/null)
+        _ai_error "Failed to get context${reason:+ — $reason}"
+        return 1
+    fi
+}
+
+# Get variable watch suggestions (NEW: Heuristic Watch Suggestions)
+# Usage: ai_watch_suggest
+ai_watch_suggest() {
+    _ai_info "Getting watch suggestions..."
+    
+    local url="$AI_DEBUG_URL/api/watch/suggest"
+    local response
+    response=$(curl -s -X GET "$url" --max-time 30 2>/dev/null)
+    
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "$url" --max-time 30 2>/dev/null)
+    
+    if [[ "$http_code" -eq 000 ]]; then
+        _ai_error "Cannot connect to debug proxy"
+        return 1
+    fi
+    
+    local success
+    success=$(printf '%s' "$response" | jq -r '.success // empty' 2>/dev/null)
+    
+    if [[ "$success" == "true" ]]; then
+        printf '%s' "$response" | jq .
+        
+        # Show summary
+        local high_count medium_count low_count
+        high_count=$(printf '%s' "$response" | jq -r '.data.metadata.highRiskCount // 0')
+        medium_count=$(printf '%s' "$response" | jq -r '.data.metadata.mediumRiskCount // 0')
+        low_count=$(printf '%s' "$response" | jq -r '.data.metadata.lowRiskCount // 0')
+        
+        _ai_info "Suggestions: ${high_count} high, ${medium_count} medium, ${low_count} low risk"
+        
+        # Show auto-watch variables
+        local auto_watch
+        auto_watch=$(printf '%s' "$response" | jq -r '.data.autoWatch[]?' 2>/dev/null)
+        if [[ -n "$auto_watch" ]]; then
+            _ai_info "Auto-watch variables:"
+            echo "$auto_watch"
+        fi
+    else
+        local reason
+        reason=$(printf '%s' "$response" | jq -r '.error // .data.errorMessage // empty' 2>/dev/null)
+        _ai_error "Failed to get suggestions${reason:+ — $reason}"
+        return 1
+    fi
+}
+
+# Enable auto-watch (placeholder)
+# Usage: ai_watch_auto_enable
+ai_watch_auto_enable() {
+    _ai_info "Enabling auto-watch..."
+    
+    local response
+    response=$(curl -s -X POST "$AI_DEBUG_URL/api/watch/auto" \
+        -H "Content-Type: application/json" \
+        --max-time 5 2>/dev/null)
+    
+    local success
+    success=$(printf '%s' "$response" | jq -r '.success // empty' 2>/dev/null)
+    
+    if [[ "$success" == "true" ]]; then
+        _ai_success "Auto-watch enabled"
+        printf '%s' "$response" | jq .
+    else
+        _ai_error "Failed to enable auto-watch"
+        return 1
+    fi
+}
+
+# Disable auto-watch (placeholder)
+# Usage: ai_watch_auto_disable
+ai_watch_auto_disable() {
+    _ai_info "Disabling auto-watch..."
+    
+    local response
+    response=$(curl -s -X DELETE "$AI_DEBUG_URL/api/watch/auto" --max-time 5 2>/dev/null)
+    
+    local success
+    success=$(printf '%s' "$response" | jq -r '.success // empty' 2>/dev/null)
+    
+    if [[ "$success" == "true" ]]; then
+        _ai_success "Auto-watch disabled"
+        printf '%s' "$response" | jq .
+    else
+        _ai_error "Failed to disable auto-watch"
+        return 1
+    fi
+}
+
+# List watched variables (placeholder)
+# Usage: ai_watch_list
+ai_watch_list() {
+    _ai_info "Listing watched variables (not implemented)"
+    _ai_warn "Auto-watch list not yet implemented"
+}
+
+# Set session context (NEW: Smart Default Context)
+# Usage: ai_set_context [--thread <id>] [--frame <id>]
+ai_set_context() {
+    local thread_id=""
+    local frame_id=""
+    
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            --thread) thread_id="$2"; shift 2 ;;
+            --frame) frame_id="$2"; shift 2 ;;
+            *) _ai_error "Unknown option: $1"; return 1 ;;
+        esac
+    done
+    
+    if [[ -z "$thread_id" && -z "$frame_id" ]]; then
+        _ai_error "Usage: ai_set_context [--thread <id>] [--frame <id>]"
+        return 1
+    fi
+    
+    _ai_info "Setting session context (thread=$thread_id, frame=$frame_id)..."
+    
+    local params="{}"
+    if [[ -n "$thread_id" ]]; then
+        params=$(printf '%s' "$params" | jq --argjson t "$thread_id" '. + {threadId: $t}')
+    fi
+    if [[ -n "$frame_id" ]]; then
+        params=$(printf '%s' "$params" | jq --argjson f "$frame_id" '. + {frameId: $f}')
+    fi
+    
+    local result
+    result=$(curl -s -X POST "$AI_DEBUG_URL/api/session/set_context" \
+        -H "Content-Type: application/json" \
+        -d "$params" \
+        --max-time 5 2>/dev/null)
+    
+    local success
+    success=$(printf '%s' "$result" | jq -r '.success // empty' 2>/dev/null)
+    
+    if [[ "$success" == "true" ]]; then
+        _ai_success "Session context updated"
+        printf '%s' "$result" | jq .
+    else
+        local reason
+        reason=$(printf '%s' "$result" | jq -r '.error // empty' 2>/dev/null)
+        _ai_error "Failed to set context${reason:+ — $reason}"
+        return 1
+    fi
 }
 
 # Alias help to -h

@@ -44,6 +44,7 @@ import {
   DebuggerResponse,
   StackFrameInfo,
   JumpParams,
+  ScopePreview,
 } from "../types";
 import { logger } from "../utils/logging";
 import {
@@ -52,6 +53,8 @@ import {
   updateCurrentTopFrameId,
   getCurrentThreadId,
   setCurrentThreadId,
+  invalidateState,
+  getCurrentFrameId,
 } from "./events";
 import { getStackTrace } from "./inspection";
 
@@ -62,6 +65,109 @@ import { getStackTrace } from "./inspection";
 const LOG = "Execution";
 const STEP_TIMEOUT_MS = 30000;
 const CONTINUE_TIMEOUT_MS = 300000;
+
+/******************************************************************************
+ * Internal Helpers - Scope Preview
+ ******************************************************************************/
+
+/**
+ * @brief Fetch scope preview from DAP.
+ *
+ * Called after step operations to provide AI with immediate
+ * visibility into function parameters and local variables.
+ *
+ * @param [in]  session   VS Code debug session.
+ *
+ * @return Scope preview or null if unavailable.
+ */
+export async function fetchScopePreview(
+  session: vscode.DebugSession
+): Promise<ScopePreview | null> {
+  try {
+    const frameId = getCurrentFrameId(session.id) ?? 0;
+    const threadId = getCurrentThreadId(session.id) ?? 1;
+
+    // Request scopes from DAP
+    const scopesResponse = await session.customRequest('scopes', {
+      frameId,
+      threadId,
+    });
+
+    if (!scopesResponse.scopes || !Array.isArray(scopesResponse.scopes)) {
+      return null;
+    }
+
+    const scopePreview: ScopePreview = {
+      parameters: [],
+      locals: [],
+      uninitialized: [],
+    };
+
+    // Fetch variables from each scope
+    for (const scope of scopesResponse.scopes) {
+      if (!scope.variablesReference) continue;
+
+      const varsResponse = await session.customRequest('variables', {
+        variablesReference: scope.variablesReference,
+      });
+
+      if (!varsResponse.variables || !Array.isArray(varsResponse.variables)) {
+        continue;
+      }
+
+      const isArguments = scope.name.toLowerCase().includes('argument') || 
+                          scope.name.toLowerCase().includes('param');
+
+      for (const variable of varsResponse.variables) {
+        const varInfo = {
+          name: variable.name,
+          type: variable.type || 'unknown',
+          value: variable.value || null,
+          status: isUninitialized(variable.value) ? 'uninitialized' as const : 'initialized' as const,
+        };
+
+        if (isArguments) {
+          scopePreview.parameters.push(varInfo);
+        } else if (scope.name.toLowerCase().includes('local')) {
+          scopePreview.locals.push(varInfo);
+        } else {
+          // Other scopes (globals, registers, etc.)
+          scopePreview.locals.push(varInfo);
+        }
+      }
+    }
+
+    logger.debug(LOG, `Fetched scope: ${scopePreview.parameters.length} params, ${scopePreview.locals.length} locals`);
+    return scopePreview;
+
+  } catch (e: any) {
+    logger.warn(LOG, `Failed to fetch scope preview: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * @brief Check if variable value indicates uninitialized state.
+ *
+ * @param [in]  value   Variable value string.
+ *
+ * @return True if uninitialized.
+ */
+function isUninitialized(value: string | undefined): boolean {
+  if (!value) return true;
+  
+  const uninitializedPatterns = [
+    'optimized out',
+    '<optimized out>',
+    '<not available>',
+    '<unavailable>',
+    'cannot be used',
+    'no value',
+  ];
+
+  const lowerValue = value.toLowerCase();
+  return uninitializedPatterns.some(pattern => lowerValue.includes(pattern));
+}
 
 /******************************************************************************
  * Internal Helpers
@@ -145,6 +251,9 @@ async function executeNavigationCommand(
 
   try {
     const threadId = await getThreadId(session);
+
+    // NEW: Invalidate state before execution command
+    invalidateState(session.id);
 
     const stopPromise = waitForStopEvent(timeoutMs);
 
@@ -298,21 +407,36 @@ export async function nextStep(
  *
  * @brief Step into the current function/method.
  *
- * @param [in]  session   VS Code debug session.
+ * Automatically fetches scope preview to provide AI with
+ * immediate visibility into function parameters and locals.
  *
- * @return Navigation result.
+ * @param [in]  session   VS Code debug session.
+ * @param [in]  withScope If true, fetch scope preview.
+ *
+ * @return Navigation result with optional scope preview.
  *
  * [Satisfies $ARCH ARCH-2]
  */
 export async function stepIn(
   session: vscode.DebugSession,
+  withScope: boolean = true,
 ): Promise<NavigationResult> {
-  return executeNavigationCommand(
+  const result = await executeNavigationCommand(
     session,
     "stepIn",
     "step_in",
     STEP_TIMEOUT_MS,
   );
+
+  // Fetch scope preview if requested
+  if (withScope && result.success) {
+    const scopePreview = await fetchScopePreview(session);
+    if (scopePreview) {
+      (result as any).scopePreview = scopePreview;
+    }
+  }
+
+  return result;
 }
 
 /**

@@ -76,6 +76,7 @@ import {
     listThreads,
     switchThread,
 } from "./execution";
+import { fetchScopePreview } from "./execution";
 import {
     getRegisters,
     readMemory,
@@ -100,6 +101,7 @@ import {
     getLastStopEventBody,
     getLastStopSessionId,
     getCurrentTopFrameId,
+    getCurrentFrameId,
 } from "./events";
 import type { SourceLocation, GetLastStopInfoResult } from "../types";
 
@@ -219,6 +221,9 @@ class DebugController {
             whatis: (args) => whatis(ensureActiveSession("whatis"), args),
             execute_statement: (args) =>
                 executeStatement(ensureActiveSession("execute_statement"), args),
+
+            // Scope Preview (PROXY-004)
+            get_scope_preview: () => this.getScopePreview(),
 
             // Status $DD-1.5
             get_last_stop_info: () => this.getLastStopInfo(),
@@ -417,7 +422,8 @@ class DebugController {
     private async watchVariable(params: WatchParams): Promise<any> {
         const session = ensureActiveSession("watch");
         const accessType = params.accessType || "write";
-        const frameId = getCurrentTopFrameId();
+        // Use getCurrentFrameId first (from session state), fallback to getCurrentTopFrameId
+        const frameId = getCurrentFrameId() ?? getCurrentTopFrameId();
 
         if (frameId === undefined) {
             return { success: false, errorMessage: "No frame available. Ensure debugger is stopped at a breakpoint." };
@@ -507,6 +513,28 @@ class DebugController {
             return { success: false, errorMessage: "No stop event recorded" };
         }
         return { success: true, sessionId, stopInfo: body };
+    }
+
+    private async getScopePreview(): Promise<any> {
+        const session = ensureActiveSession("get_scope_preview");
+        const scopePreview = await fetchScopePreview(session);
+        
+        if (!scopePreview) {
+            return {
+                success: false,
+                errorMessage: "Could not fetch scope preview. Ensure debugger is stopped."
+            };
+        }
+
+        return {
+            success: true,
+            scopePreview,
+            metadata: {
+                parametersCount: scopePreview.parameters.length,
+                localsCount: scopePreview.locals.length,
+                uninitializedCount: scopePreview.uninitialized.length
+            }
+        };
     }
 
     private locationKey(loc: SourceLocation): string {

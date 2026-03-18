@@ -279,6 +279,27 @@ export interface NavigationResult extends DebuggerResponse {
     description: string; /**< Human-readable error description */
     stackTrace?: any; /**< Auto-captured stack trace */
   };
+  scopePreview?: ScopePreview; /**< Function scope preview (PROXY-004). */
+}
+
+/** @brief Function scope preview for AI agents. */
+export interface ScopePreview {
+  parameters: Array<{
+    name: string;
+    type: string;
+    value: string | null;
+    status: 'initialized' | 'uninitialized';
+  }>;
+  locals: Array<{
+    name: string;
+    type: string;
+    value: string | null;
+    status: 'initialized' | 'uninitialized';
+  }>;
+  uninitialized: Array<{
+    name: string;
+    type: string;
+  }>;
 }
 
 /** @brief Result of setting a breakpoint. */

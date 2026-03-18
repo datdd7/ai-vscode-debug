@@ -57,6 +57,16 @@ const PKG_VERSION: string = (() => {
 })();
 import { debugController } from "../debug/DebugController";
 import { getActiveSession } from "../debug/session";
+import { 
+  getCurrentThreadId, 
+  getCurrentFrameId, 
+  getLastLocation,
+  isStateValid 
+} from "../debug/events";
+import { aggregateContext } from "../debug/ContextAggregator";
+import { watchSuggestService } from "../debug/WatchSuggestService";
+import { globalDiscoveryService } from "../debug/GlobalDiscoveryService";
+import { watchChangeTracker } from "../debug/WatchChangeTracker";
 import { handleSubagentsRequest } from "./routes/subagents.routes";
 import { commandHandler } from "../commands/CommandHandler";
 import { lspService } from "../lsp/LspService";
@@ -110,7 +120,8 @@ export async function handleRequest(
 
     // Routing table logic decomposed to maintain low cyclomatic complexity.
     const result =
-        (await handleSystemRouting(method, pathname)) ??
+        (await handleSystemRouting(method, pathname, body, url)) ??
+        (await handleWatchRouting(method, pathname, body, url)) ??
         (await handleSubagentRouting(method, pathname, body)) ??
         (await handleCommandRouting(method, pathname, body)) ??
         (await handleLspRouting(method, pathname, parsedUrl)) ??
@@ -133,8 +144,9 @@ export async function handleRequest(
  **************************************************************************/
 
 /** @brief Handle core system routes (ping, status). */
-async function handleSystemRouting(method: string, pathname: string): Promise<RouteResult | null> {
-    if (method !== "GET") return null;
+async function handleSystemRouting(method: string, pathname: string, body: any, url: string): Promise<RouteResult | null> {
+    // Allow GET and POST for system routes
+    if (method !== "GET" && method !== "POST") return null;
 
     if (pathname === "/api/ping") {
         return {
@@ -168,7 +180,276 @@ async function handleSystemRouting(method: string, pathname: string): Promise<Ro
         };
     }
 
+    // NEW: Session state endpoint for auto-context
+    if (pathname === "/api/session/state" && method === "GET") {
+        const activeSession = getActiveSession();
+        if (!activeSession) {
+            return {
+                statusCode: 400,
+                body: {
+                    success: false,
+                    error: "No active debug session",
+                },
+            };
+        }
+        
+        const threadId = getCurrentThreadId(activeSession.id);
+        const frameId = getCurrentFrameId(activeSession.id);
+        const location = getLastLocation(activeSession.id);
+        const stateValid = isStateValid(activeSession.id);
+        
+        return {
+            statusCode: 200,
+            body: {
+                success: true,
+                data: {
+                    sessionId: activeSession.id,
+                    threadId: threadId ?? null,
+                    frameId: frameId ?? null,
+                    location: location ?? null,
+                    stateValid: stateValid ?? false,
+                },
+                timestamp: new Date().toISOString(),
+            },
+        };
+    }
+
+    // NEW: Set session context endpoint
+    if (pathname === "/api/session/set_context" && method === "POST") {
+        const activeSession = getActiveSession();
+        if (!activeSession) {
+            return {
+                statusCode: 400,
+                body: {
+                    success: false,
+                    error: "No active debug session",
+                },
+            };
+        }
+        
+        if (!body?.threadId && !body?.frameId) {
+            return {
+                statusCode: 400,
+                body: {
+                    success: false,
+                    error: "Missing 'threadId' or 'frameId' parameter",
+                },
+            };
+        }
+        
+        // Import setter functions
+        const { setCurrentThreadId, setCurrentFrameId } = require("../debug/events");
+        
+        if (body.threadId !== undefined) {
+            setCurrentThreadId(body.threadId, activeSession.id);
+        }
+        if (body.frameId !== undefined) {
+            setCurrentFrameId(body.frameId, activeSession.id);
+        }
+        
+        return {
+            statusCode: 200,
+            body: {
+                success: true,
+                data: {
+                    message: "Session context updated",
+                    threadId: body.threadId ?? null,
+                    frameId: body.frameId ?? null,
+                },
+                timestamp: new Date().toISOString(),
+            },
+        };
+    }
+
+    // NEW: Context snapshot endpoint for AI agents
+    if (pathname === "/api/context" && method === "GET") {
+        const activeSession = getActiveSession();
+        if (!activeSession) {
+            return {
+                statusCode: 400,
+                body: {
+                    success: false,
+                    error: "No active debug session",
+                },
+            };
+        }
+        
+        try {
+            // Parse query parameters
+            const query = new URL(url, "http://localhost").searchParams;
+            const options: any = {};
+            
+            const depth = query.get("depth");
+            if (depth) options.depth = parseInt(depth, 10);
+            
+            const include = query.get("include");
+            if (include) options.include = include.split(",");
+            
+            const exclude = query.get("exclude");
+            if (exclude) options.exclude = exclude.split(",");
+            
+            const sourceLines = query.get("sourceLines");
+            if (sourceLines) options.sourceLines = parseInt(sourceLines, 10);
+            
+            // Aggregate context
+            const context = await aggregateContext(activeSession, options);
+            
+            return {
+                statusCode: 200,
+                body: {
+                    success: true,
+                    data: context,
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        } catch (e: any) {
+            logger.error(LOG, `Context aggregation failed: ${e.message}`);
+            return {
+                statusCode: 500,
+                body: {
+                    success: false,
+                    error: `Context aggregation failed: ${e.message}`,
+                },
+            };
+        }
+    }
+
     return null;
+}
+
+/** @brief Handle watch suggestion routes. */
+async function handleWatchRouting(method: string, pathname: string, body: any, url: string): Promise<RouteResult | null> {
+  // GET /api/watch/suggest - Get watch suggestions
+  if (pathname === "/api/watch/suggest" && method === "GET") {
+    const activeSession = getActiveSession();
+    if (!activeSession) {
+      return {
+        statusCode: 400,
+        body: { success: false, error: "No active debug session" },
+      };
+    }
+
+    try {
+      const result = await watchSuggestService.getSuggestions(activeSession);
+      return {
+        statusCode: 200,
+        body: {
+          success: true,
+          data: result,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (e: any) {
+      logger.error(LOG, `Watch suggestions failed: ${e.message}`);
+      return {
+        statusCode: 500,
+        body: {
+          success: false,
+          error: `Watch suggestions failed: ${e.message}`,
+        },
+      };
+    }
+  }
+
+  // POST /api/watch/auto - Enable auto-watch
+  if (pathname === "/api/watch/auto" && method === "POST") {
+    const activeSession = getActiveSession();
+    if (!activeSession) {
+      return {
+        statusCode: 400,
+        body: { success: false, error: "No active debug session" },
+      };
+    }
+
+    // Enable change tracker
+    watchChangeTracker.enable();
+    
+    // Add variables to watch
+    const patterns = body?.patterns || [];
+    if (patterns.length > 0) {
+      const globals = await globalDiscoveryService.discoverByPattern(patterns);
+      for (const global of globals) {
+        await watchChangeTracker.watchVariable(activeSession, global.name);
+      }
+    }
+
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        data: { 
+          message: "Auto-watch enabled",
+          watchedCount: watchChangeTracker.getWatchedVariables().length
+        },
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // DELETE /api/watch/auto - Disable auto-watch
+  if (pathname === "/api/watch/auto" && method === "DELETE") {
+    watchChangeTracker.disable();
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        data: { message: "Auto-watch disabled" },
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // GET /api/watch/changes - Get detected changes
+  if (pathname === "/api/watch/changes" && method === "GET") {
+    const changes = watchChangeTracker.getChanges();
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        data: { changes },
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // POST /api/watch/clear_changes - Clear change history
+  if (pathname === "/api/watch/clear_changes" && method === "POST") {
+    watchChangeTracker.clearChanges();
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        data: { message: "Change history cleared" },
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // GET /api/discover/globals - Discover global variables
+  if (pathname === "/api/discover/globals" && method === "GET") {
+    try {
+      const result = await globalDiscoveryService.discoverGlobals();
+      return {
+        statusCode: 200,
+        body: {
+          success: true,
+          data: result,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (e: any) {
+      logger.error(LOG, `Global discovery failed: ${e.message}`);
+      return {
+        statusCode: 500,
+        body: {
+          success: false,
+          error: `Global discovery failed: ${e.message}`,
+        },
+      };
+    }
+  }
+
+  return null;
 }
 
 /** @brief Handle subagent orchestration routes. */

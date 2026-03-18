@@ -56,6 +56,13 @@ interface SessionDebugState {
   topFrameId?: number;
   lastStopBody?: any;
   currentThreadId?: number;
+  currentFrameId?: number;  // NEW: Auto-resolved frame ID
+  lastLocation?: {          // NEW: Last known location
+    file: string;
+    line: number;
+    function?: string;
+  };
+  stateValid?: boolean;     // NEW: Track if state is fresh
 }
 const _sessionState = new Map<string, SessionDebugState>();
 
@@ -117,6 +124,8 @@ export function updateCurrentTopFrameId(
   if (!id) return;
   const state = _sessionState.get(id) ?? {};
   state.topFrameId = frameId;
+  state.currentFrameId = frameId;  // Also update current frame
+  state.stateValid = true;
   _sessionState.set(id, state);
 }
 
@@ -172,6 +181,101 @@ export function setCurrentThreadId(
   if (!id) return;
   const state = _sessionState.get(id) ?? {};
   state.currentThreadId = threadId;
+  state.stateValid = true;
+  _sessionState.set(id, state);
+}
+
+/**
+ * $DD DD-SW-1.9.3
+ *
+ * @brief Get the current frame ID for a session.
+ *
+ * @param [in]  sessionId   Optional session ID.
+ *
+ * @return Frame ID or undefined.
+ *
+ * [Satisfies $ARCH ARCH-4]
+ */
+export function getCurrentFrameId(sessionId?: string): number | undefined {
+  if (sessionId) return _sessionState.get(sessionId)?.currentFrameId;
+  const active = vscode.debug.activeDebugSession;
+  return active ? _sessionState.get(active.id)?.currentFrameId : undefined;
+}
+
+/**
+ * $DD DD-SW-1.9.4
+ *
+ * @brief Set the current frame ID for a session.
+ *
+ * @param [in]  frameId     New frame ID.
+ * @param [in]  sessionId   Optional session ID.
+ *
+ * [Satisfies $ARCH ARCH-4]
+ */
+export function setCurrentFrameId(
+  frameId: number,
+  sessionId?: string,
+): void {
+  const id = sessionId ?? vscode.debug.activeDebugSession?.id;
+  if (!id) return;
+  const state = _sessionState.get(id) ?? {};
+  state.currentFrameId = frameId;
+  state.stateValid = true;
+  _sessionState.set(id, state);
+}
+
+/**
+ * $DD DD-SW-1.9.5
+ *
+ * @brief Get the last known location for a session.
+ *
+ * @param [in]  sessionId   Optional session ID.
+ *
+ * @return Location or undefined.
+ *
+ * [Satisfies $ARCH ARCH-4]
+ */
+export function getLastLocation(sessionId?: string): {
+  file: string;
+  line: number;
+  function?: string;
+} | undefined {
+  if (sessionId) return _sessionState.get(sessionId)?.lastLocation;
+  const active = vscode.debug.activeDebugSession;
+  return active ? _sessionState.get(active.id)?.lastLocation : undefined;
+}
+
+/**
+ * $DD DD-SW-1.9.6
+ *
+ * @brief Check if session state is valid.
+ *
+ * @param [in]  sessionId   Optional session ID.
+ *
+ * @return True if state is valid, false otherwise.
+ *
+ * [Satisfies $ARCH ARCH-4]
+ */
+export function isStateValid(sessionId?: string): boolean {
+  if (sessionId) return _sessionState.get(sessionId)?.stateValid ?? false;
+  const active = vscode.debug.activeDebugSession;
+  return active ? (_sessionState.get(active.id)?.stateValid ?? false) : false;
+}
+
+/**
+ * $DD DD-SW-1.9.7
+ *
+ * @brief Invalidate session state (called on continue/step operations).
+ *
+ * @param [in]  sessionId   Optional session ID.
+ *
+ * [Satisfies $ARCH ARCH-4]
+ */
+export function invalidateState(sessionId?: string): void {
+  const id = sessionId ?? vscode.debug.activeDebugSession?.id;
+  if (!id) return;
+  const state = _sessionState.get(id) ?? {};
+  state.stateValid = false;
   _sessionState.set(id, state);
 }
 
@@ -307,6 +411,14 @@ class DapStopTracker implements vscode.DebugAdapterTracker {
 
         const state = _sessionState.get(this.session.id) ?? {};
         state.lastStopBody = body;
+        
+        // NEW: Auto-update thread and frame from stop event
+        if (body.threadId !== undefined) {
+          state.currentThreadId = body.threadId;
+        }
+        state.currentFrameId = 0;  // Default to top frame on stop
+        state.stateValid = true;
+        
         _sessionState.set(this.session.id, state);
 
         resolveWaitPromise(true, body.reason);

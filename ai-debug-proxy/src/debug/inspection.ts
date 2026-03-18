@@ -60,6 +60,10 @@ import {
   getCurrentTopFrameId,
   updateCurrentTopFrameId,
   getLastStopEventBody,
+  getCurrentThreadId,
+  getCurrentFrameId,
+  isStateValid,
+  setCurrentFrameId,
 } from "./events";
 
 /******************************************************************************
@@ -82,6 +86,13 @@ const LOG = "Inspection";
  * @return Thread ID.
  */
 async function getThreadId(session: vscode.DebugSession): Promise<number> {
+  // NEW: Use auto-resolved current thread ID first
+  const currentThreadId = getCurrentThreadId(session.id);
+  if (currentThreadId !== undefined) {
+    logger.debug(LOG, `Using cached threadId: ${currentThreadId}`);
+    return currentThreadId;
+  }
+  
   const stopBody = getLastStopEventBody(session.id);
   if (stopBody?.threadId) {
     return stopBody.threadId;
@@ -133,6 +144,9 @@ export async function getStackTrace(
 
     if (frames.length > 0) {
       updateCurrentTopFrameId(frames[0].id);
+      // NEW: Also update last location from top frame
+      const topFrame = frames[0];
+      setCurrentFrameId(topFrame.id, session.id);
     }
 
     return { success: true, frames, totalFrames: res.totalFrames };
@@ -415,7 +429,8 @@ export async function evaluate(
   session: vscode.DebugSession,
   params: EvaluateParams,
 ): Promise<EvaluateResult> {
-  const frameId = params.frameId ?? getCurrentTopFrameId();
+  // NEW: Auto-resolve frameId from session state if not provided
+  const frameId = params.frameId ?? getCurrentFrameId(session.id) ?? getCurrentTopFrameId();
 
   if (frameId === undefined) {
     return {

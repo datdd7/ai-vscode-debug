@@ -125,6 +125,7 @@ export function validateOperationArgs(
     case "down":
     case "get_active_breakpoints":
     case "get_last_stop_info":
+    case "get_scope_preview":  // NEW: PROXY-004
       return ok(args || {});
 
     // Launch
