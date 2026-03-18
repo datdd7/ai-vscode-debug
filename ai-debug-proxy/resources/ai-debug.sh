@@ -7,20 +7,25 @@
 #              Provides command-line interface for interacting with the
 #              AI Debug Proxy HTTP API.
 #
+#              Output is pure JSON by default (AI-friendly).
+#              Use --pretty flag for human-readable colored output.
+#
 # Usage:       source ai-debug.sh
 #              ai_launch ./build/app
 #              ai_bp main.c 42
 #              ai_continue
 #
 # Environment: AI_DEBUG_URL (default: http://localhost:9999)
+#              AI_DEBUG_PRETTY (default: false - set to true for colored output)
 #
 #===============================================================================
 
 # Default configuration
 AI_DEBUG_URL="${AI_DEBUG_URL:-http://localhost:9999}"
 AI_DEBUG_TIMEOUT="${AI_DEBUG_TIMEOUT:-30}"
+AI_DEBUG_PRETTY="${AI_DEBUG_PRETTY:-false}"  # false = pure JSON (AI-friendly)
 
-# Color codes for output
+# Color codes for output (only used when AI_DEBUG_PRETTY=true)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -31,45 +36,57 @@ NC='\033[0m' # No Color
 # Internal helper functions
 #-------------------------------------------------------------------------------
 
-# Print colored message
+# Print colored message (to stderr, not stdout - keeps JSON output clean)
 _ai_print() {
     local color=$1
     local message=$2
-    echo -e "${color}${message}${NC}"
+    if [[ "$AI_DEBUG_PRETTY" == "true" ]]; then
+        echo -e "${color}${message}${NC}" >&2  # stderr
+    fi
 }
 
-# Print info message
+# Print info message (to stderr)
 _ai_info() {
-    _ai_print "$BLUE" "ℹ $1"
+    if [[ "$AI_DEBUG_PRETTY" == "true" ]]; then
+        _ai_print "$BLUE" "ℹ $1" >&2
+    fi
 }
 
-# Print success message
+# Print success message (to stderr)
 _ai_success() {
-    _ai_print "$GREEN" "✓ $1"
+    if [[ "$AI_DEBUG_PRETTY" == "true" ]]; then
+        _ai_print "$GREEN" "✓ $1" >&2
+    fi
 }
 
-# Print warning message
+# Print warning message (to stderr)
 _ai_warn() {
-    _ai_print "$YELLOW" "⚠ $1"
+    if [[ "$AI_DEBUG_PRETTY" == "true" ]]; then
+        _ai_print "$YELLOW" "⚠ $1" >&2
+    fi
 }
 
-# Print error message
+# Print error message (to stderr)
 _ai_error() {
     _ai_print "$RED" "✗ $1" >&2
 }
 
 # Execute debug operation
 # Usage: _ai_debug_op <operation> [params_json]
+# Output: Pure JSON to stdout (AI-friendly)
+#         Messages to stderr (only if AI_DEBUG_PRETTY=true)
 _ai_debug_op() {
     local operation=$1
     local params=${2:-"{}"}
-    
+
+    _ai_info "Executing: $operation"
+
     local response
     response=$(curl -s -w "\n%{http_code}" -X POST "$AI_DEBUG_URL/api/debug" \
         -H "Content-Type: application/json" \
         -d "{\"operation\":\"$operation\",\"params\":$params}" \
         --max-time "$AI_DEBUG_TIMEOUT" 2>/dev/null)
-    
+
     local http_code
     http_code=$(printf '%s\n' "$response" | tail -n1)
     local body
@@ -77,9 +94,11 @@ _ai_debug_op() {
 
     if [[ "$http_code" -eq 000 ]]; then
         _ai_error "Cannot connect to debug proxy at $AI_DEBUG_URL"
+        echo "{\"success\":false,\"error\":\"Cannot connect to proxy\"}"
         return 1
     fi
-    
+
+    # Output pure JSON to stdout (for AI parsing)
     printf '%s\n' "$body"
 
     # Check if operation was successful
@@ -88,7 +107,7 @@ _ai_debug_op() {
     if [[ "$success" == "false" ]]; then
         return 1
     fi
-    
+
     return 0
 }
 
