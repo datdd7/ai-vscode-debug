@@ -1,20 +1,31 @@
 #!/usr/bin/env node
 // Post-build: inline all CSS and JS assets into a single self-contained HTML file.
 import { readFileSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dist = join(__dirname, 'dist');
 
+// Resolve any asset href (./assets/x, /base/assets/x, assets/x) → absolute path in dist
+function resolveAsset(href) {
+  // Extract the assets/filename part regardless of base prefix
+  const match = href.match(/assets\/[^?#]+/);
+  if (match) return join(dist, match[0]);
+  // Fallback: strip leading slashes/dots and join with dist
+  return join(dist, href.replace(/^[./]+/, ''));
+}
+
 let html = readFileSync(join(dist, 'index.html'), 'utf8');
 
-// Inline <link rel="stylesheet" href="...">
+// Inline <link rel="stylesheet" ...>
 html = html.replace(
-  /<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g,
+  /<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*\/?>/g,
   (_, href) => {
-    const css = readFileSync(join(dist, href.replace(/^\.\//, '')), 'utf8');
-    return `<style>${css}</style>`;
+    try {
+      const css = readFileSync(resolveAsset(href), 'utf8');
+      return `<style>${css}</style>`;
+    } catch { return ''; }
   }
 );
 
@@ -22,9 +33,11 @@ html = html.replace(
 html = html.replace(
   /<script([^>]*?)src="([^"]+)"([^>]*)><\/script>/g,
   (_, pre, src, post) => {
-    const js = readFileSync(join(dist, src.replace(/^\.\//, '')), 'utf8');
-    const attrs = (pre + post).replace(/type="module"/g, '').replace(/crossorigin/g, '').trim();
-    return `<script${attrs ? ' ' + attrs : ''}>${js}</script>`;
+    try {
+      const js = readFileSync(resolveAsset(src), 'utf8');
+      const attrs = (pre + post).replace(/type="module"/g, '').replace(/crossorigin/g, '').trim();
+      return `<script${attrs ? ' ' + attrs : ''}>${js}</script>`;
+    } catch { return ''; }
   }
 );
 
