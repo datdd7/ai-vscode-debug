@@ -45,22 +45,3 @@ export interface CoverageModule {
   current: number;
   threshold: number;
 }
-
-export interface ReleaseGate {
-  id: string;
-  name: string;
-  description: string;
-  passed: boolean;
-}
-
-export interface TestCategory {
-  label: string;
-  count: number;
-  icon: string;
-}
-
-export interface OperationEntry {
-  name: string;
-  tested: boolean;
-  suite: string;
-}

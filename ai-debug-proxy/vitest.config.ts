@@ -29,6 +29,10 @@ export default defineConfig({
         // Test infrastructure files
         'src/test/**',
       ],
+      thresholds: {
+        statements: 97,
+        lines: 97,
+      },
     },
   },
 });
