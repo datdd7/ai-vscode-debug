@@ -29,17 +29,22 @@ html = html.replace(
   }
 );
 
-// Inline <script ... src="..."></script>
+// Inline <script ... src="..."></script> — collect then insert before </body>
+// type="module" scripts are deferred by default; IIFE inline scripts are not,
+// so they must appear after <div id="app"> exists in the DOM.
+const inlinedScripts = [];
 html = html.replace(
   /<script([^>]*?)src="([^"]+)"([^>]*)><\/script>/g,
   (_, pre, src, post) => {
     try {
       const js = readFileSync(resolveAsset(src), 'utf8');
       const attrs = (pre + post).replace(/type="module"/g, '').replace(/crossorigin/g, '').trim();
-      return `<script${attrs ? ' ' + attrs : ''}>${js}</script>`;
-    } catch { return ''; }
+      inlinedScripts.push(`<script${attrs ? ' ' + attrs : ''}>${js}</script>`);
+    } catch { /* skip */ }
+    return '';
   }
 );
+html = html.replace('</body>', inlinedScripts.join('\n') + '\n</body>');
 
 const out = join(dist, 'dashboard.html');
 writeFileSync(out, html);
