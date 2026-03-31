@@ -234,6 +234,7 @@ jobs:
           ln -s ../../ai-debug-proxy/node_modules node_modules
           npx tsc --noEmit
           npx vite build
+          node inline.js
         env:
           GITHUB_ACTIONS: 'true'
 
@@ -241,5 +242,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ci-dashboard
-          path: infrastructure/dashboard/dist
+          path: infrastructure/dashboard/dist/dashboard.html
           retention-days: 7
