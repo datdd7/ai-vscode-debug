@@ -103,14 +103,10 @@
         "test": "vitest run",
         "test:watch": "vitest --watch",
         "test:coverage": "vitest run --coverage",
-        "test:e2e": "node ./out/test/runTest.js",
-        "test:pact:consumer": "vitest run --config vitest.config.pact.ts",
-        "publish:pact": "../scripts/publish-pact.sh",
-        "can:i:deploy:consumer": "PACTICIPANT=ai-debug-proxy-consumer ../scripts/can-i-deploy.sh",
-        "record:consumer:deployment": "PACTICIPANT=ai-debug-proxy-consumer ../scripts/record-deployment.sh"
+        "test:e2e": "node ./out/test/runTest.js"
     },
     "devDependencies": {
-        "@pact-foundation/pact": "^13.0.0",
+
         "@playwright/test": "^1.54.1",
         "@seontechnologies/playwright-utils": "latest",
         "@types/glob": "^8.1.0",
