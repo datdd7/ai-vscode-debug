@@ -55,6 +55,8 @@ export interface LaunchParams {
     cwd?: string;
     /** If true, stop at main() on launch. Defaults to true. */
     stopOnEntry?: boolean;
+    /** Optional environment variables to set before running. */
+    env?: Record<string, string | null>;
 }
 
 /**

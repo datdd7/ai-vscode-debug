@@ -174,10 +174,19 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
             await this.mi2.sendCommand(`-environment-cd "${this.escapePath(params.cwd)}"`);
         }
 
+        if (params.env) {
+            for (const [key, value] of Object.entries(params.env)) {
+                if (value !== null) {
+                    await this.mi2.sendCommand(`-interpreter-exec console "set environment ${key}=${value}"`);
+                }
+            }
+        }
+
         // Set entry breakpoint if requested
+        // Use -f (pending) so the breakpoint activates even when main is in a shared library
         if (params.stopOnEntry) {
-            await this.mi2.sendCommand('-break-insert main');
-            console.log('[GDBBackend] Breakpoint set at main');
+            await this.mi2.sendCommand('-break-insert -f main');
+            console.log('[GDBBackend] Breakpoint set at main (pending)');
         }
         
         this.log('Launch complete (deferred -exec-run)');
@@ -456,17 +465,20 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
 
         console.log('[GDBBackend] Getting arguments');
 
-        if (frameId !== undefined) {
-            await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
-        }
+        const targetFrame = frameId ?? this.currentFrameId ?? 0;
+        await this.mi2.sendCommand(`-stack-select-frame ${targetFrame}`);
 
-        const result = await this.mi2.sendCommand('-stack-list-arguments 1');
+        // Query args for this specific frame only
+        const result = await this.mi2.sendCommand(`-stack-list-arguments 1 ${targetFrame} ${targetFrame}`);
 
-        if (!result.resultData || !result.resultData.stackargs) {
+        if (!result.resultData || !result.resultData['stack-args']) {
             return [];
         }
 
-        return result.resultData.stackargs.map((arg: any) => ({
+        const frameArgs = result.resultData['stack-args'][0];
+        if (!frameArgs || !frameArgs.args) return [];
+
+        return frameArgs.args.map((arg: any) => ({
             name: arg.name || 'unknown',
             value: arg.value || 'undefined',
             type: arg.type || 'unknown',
@@ -508,6 +520,11 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
         if (!this.mi2) throw new Error('GDB not initialized');
 
         console.log('[GDBBackend] Evaluating:', expression);
+
+        const targetFrame = frameId ?? this.currentFrameId;
+        if (targetFrame !== undefined) {
+            await this.mi2.sendCommand(`-stack-select-frame ${targetFrame}`);
+        }
 
         const result = await this.mi2.sendCommand(`-data-evaluate-expression "${expression}"`);
 
@@ -746,6 +763,27 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async listSource(params?: any): Promise<string> {
         if (!this.mi2) throw new Error('GDB not initialized');
         console.log('[GDBBackend] List source');
+
+        const linesAround = params?.linesAround ?? 10;
+        const frameId = params?.frameId ?? this.currentFrameId;
+
+        if (frameId !== undefined) {
+            await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
+            // Get the actual file+line for this frame so list shows the right source
+            const frameInfo = await this.mi2.sendCommand('-stack-info-frame');
+            const file = frameInfo.resultData?.frame?.fullname || frameInfo.resultData?.frame?.file;
+            const line = parseInt(frameInfo.resultData?.frame?.line ?? '0');
+            if (file && line) {
+                const start = Math.max(1, line - Math.floor(linesAround / 2));
+                const end = line + Math.ceil(linesAround / 2);
+                const result = await this.mi2.sendCommand(
+                    `-interpreter-exec console "list ${file}:${start},${file}:${end}"`
+                );
+                return result.resultData?.consoleOutput || result.resultData?.value || '';
+            }
+        }
+
+        // Fallback: list around current PC
         const result = await this.mi2.sendCommand('-interpreter-exec console "list"');
         return result.resultData?.consoleOutput || result.resultData?.value || '';
     }

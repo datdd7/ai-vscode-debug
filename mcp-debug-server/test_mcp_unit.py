@@ -44,27 +44,28 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def ok(raw: str, ctx: str = "") -> dict:
-    d = json.loads(raw)
-    assert d.get("success") is True, f"{ctx}: {raw}"
+def ok(raw, ctx: str = "") -> dict:
+    d = raw if isinstance(raw, dict) else json.loads(raw)
+    assert d.get("success") is True, f"{ctx}: {d}"
     return d
 
 
-def parse(raw: str) -> dict:
-    return json.loads(raw)
+def parse(raw) -> dict:
+    return raw if isinstance(raw, dict) else json.loads(raw)
 
 
 # ── GROUP 1: Proxy health + session ──────────────────────────────────────────
 
 class TestGroup1Session:
 
-    def test_ping_returns_38_operations(self):
+    def test_ping_returns_39_operations(self):
         import httpx
         r = httpx.get(f"{MOCK_URL}/api/ping")
         d = r.json()
         assert d["success"] is True
         assert d["data"]["version"] == "3.0.0-b1-mock"
-        assert len(d["data"]["operations"]) == 38
+        assert len(d["data"]["operations"]) == 39
+        assert "start" in d["data"]["operations"]
 
     def test_status_before_launch(self):
         raw = run(debug_mcp.debug_status())
@@ -99,6 +100,11 @@ class TestGroup1Session:
         run(debug_mcp.debug_launch("/playground/build/cooling_ecu"))
         raw = run(debug_mcp.debug_restart())
         ok(raw, "restart")
+
+    def test_start(self):
+        run(debug_mcp.debug_launch("/playground/build/cooling_ecu"))
+        raw = run(debug_mcp.debug_start())
+        ok(raw, "start")
 
     def test_get_capabilities(self):
         raw = run(debug_mcp.debug_get_capabilities())

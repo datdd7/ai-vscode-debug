@@ -42,6 +42,7 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     stopOnEntry?: boolean;
     gdbPath?: string;
     backendType?: 'gdb' | 'lauterbach';
+    env?: Record<string, string | null>;
 }
 
 /**
@@ -135,7 +136,8 @@ export class AIDebugSession extends LoggingDebugSession {
             await this.backend.launch({
                 program: args.program,
                 cwd: args.cwd,
-                stopOnEntry: args.stopOnEntry ?? true
+                stopOnEntry: args.stopOnEntry ?? true,
+                env: args.env
             });
 
             // Send initialized event

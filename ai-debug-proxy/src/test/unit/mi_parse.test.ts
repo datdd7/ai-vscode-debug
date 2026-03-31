@@ -121,10 +121,72 @@ describe('MI Parser', () => {
             }
         });
 
-        it('should parse token', () => {
+        it('should parse token in result record', () => {
             const result = parseMI('123^done');
             expect(result).toBeDefined();
             expect(result?.token).toBe(123);
+        });
+
+        it('should parse token in out-of-band record', () => {
+            // Exercises line 318: token = parseInt(match[1]) inside the OOB while loop
+            const result = parseMI('1*running,thread-id="all"');
+            expect(result).toBeDefined();
+            expect(result?.token).toBe(1);
+            const record = result?.outOfBandRecord?.[0];
+            expect(record).toBeDefined();
+            if (record && !record.isStream) {
+                expect(record.asyncClass).toBe('running');
+            } else {
+                expect.fail('Expected async record with token');
+            }
+        });
+
+        it('should parse out-of-band record without comma (no params)', () => {
+            // Exercises lines 328-330: asyncClass else branch when no comma follows
+            const result = parseMI('*stopped');
+            expect(result).toBeDefined();
+            const record = result?.outOfBandRecord?.[0];
+            expect(record).toBeDefined();
+            if (record && !record.isStream) {
+                expect(record.asyncClass).toBe('stopped');
+                expect(record.output).toEqual([]);
+            } else {
+                expect.fail('Expected async record');
+            }
+        });
+
+        it('should parse target output stream record (@)', () => {
+            const result = parseMI('@"target output\\n"');
+            expect(result).toBeDefined();
+            const record = result?.outOfBandRecord?.[0];
+            if (record && record.isStream) {
+                expect(record.type).toBe('target');
+            } else {
+                expect.fail('Expected stream record');
+            }
+        });
+
+        it('should parse result with a list of string values (exercises parseCommaValue)', () => {
+            // GDB can return value lists like files=["main.c","helper.c"]
+            const result = parseMI('^done,files=["main.c","helper.c","util.c"]');
+            expect(result).toBeDefined();
+            expect(result?.resultRecords?.resultClass).toBe('done');
+            const filesEntry = result?.resultRecords?.results?.find(r => r[0] === 'files');
+            expect(filesEntry).toBeDefined();
+            expect(Array.isArray(filesEntry![1])).toBe(true);
+            expect(filesEntry![1]).toHaveLength(3);
+        });
+
+        it('should parse log stream record (&)', () => {
+            const result = parseMI('&"set pagination off\\n"');
+            expect(result).toBeDefined();
+            const record = result?.outOfBandRecord?.[0];
+            if (record && record.isStream) {
+                expect(record.type).toBe('log');
+                expect(record.content).toContain('set pagination off');
+            } else {
+                expect.fail('Expected log stream record');
+            }
         });
 
         it('should parse multiple out-of-band records', () => {
@@ -150,6 +212,42 @@ describe('MI Parser', () => {
             } else {
                 expect.fail('Expected async record for second record');
             }
+        });
+    });
+
+    describe('MINode.record()', () => {
+        it('returns undefined when outOfBandRecord is empty', () => {
+            const node = parseMI('^done');
+            // No OOB records → record() returns undefined
+            expect(node.record('reason')).toBeUndefined();
+        });
+
+        it('returns undefined when first OOB record is a stream record', () => {
+            const node = parseMI('~"hello\\n"');
+            expect(node.record('type')).toBeUndefined();
+        });
+
+        it('returns value from async OOB record', () => {
+            const node = parseMI('*stopped,reason="breakpoint-hit",thread-id="1"');
+            expect(node.record('reason')).toBe('breakpoint-hit');
+        });
+    });
+
+    describe('MINode.result()', () => {
+        it('returns undefined when no resultRecords', () => {
+            const node = parseMI('*stopped,reason="step"');
+            // No result record → result() returns undefined
+            expect(node.result('value')).toBeUndefined();
+        });
+
+        it('returns value from result record', () => {
+            const node = parseMI('^done,value="42"');
+            expect(node.result('value')).toBe('42');
+        });
+
+        it('returns undefined for missing key', () => {
+            const node = parseMI('^done,value="42"');
+            expect(node.result('nonexistent')).toBeUndefined();
         });
     });
 
@@ -185,10 +283,106 @@ describe('MI Parser', () => {
         it('should handle array indexing', () => {
             const result = parseMI(GDB_MI_FIXTURES.localsList);
             expect(result).toBeDefined();
-            
+
             // Verify locals list is parsed (exact structure depends on fixture)
             // Fixture: 'locals=[{name="x",value="42",type="int"},{name="y",value="0",type="int"}]'
             expect(result?.outOfBandRecord).toBeDefined();
+        });
+
+        it('valueOf @ notation wraps current in array', () => {
+            // '@' at path step wraps current value in array (line 115-116 in mi_parse.ts)
+            const results: [string, any][] = [['value', '42']];
+            const wrapped = MINode.valueOf(results, 'value@');
+            expect(Array.isArray(wrapped)).toBe(true);
+            expect(wrapped[0]).toBe('42');
+        });
+
+        it('valueOf with multiple matching keys returns array', () => {
+            // found.length > 1 → current = found (array of all matches)
+            const results: [string, any][] = [
+                ['frame', 'a'],
+                ['frame', 'b'],
+                ['frame', 'c']
+            ];
+            const found = MINode.valueOf(results, 'frame');
+            expect(Array.isArray(found)).toBe(true);
+            expect(found).toHaveLength(3);
+        });
+
+        it('valueOf accesses array element by index (in bounds)', () => {
+            // current is an array, i in bounds → current = current[i]
+            const results: [string, any][] = [['items', ['a', 'b', 'c']]];
+            const val = MINode.valueOf(results, 'items[1]');
+            expect(val).toBe('b');
+        });
+
+        it('valueOf returns undefined for out-of-bounds index', () => {
+            // i > 0 and out of range → return undefined (line 125-126)
+            const results: [string, any][] = [['x', 'a'], ['y', 'b']];
+            const val = MINode.valueOf(results, 'x[5]');
+            expect(val).toBeUndefined();
+        });
+
+        it('valueOf returns undefined when start is falsy (lines 87-88)', () => {
+            expect(MINode.valueOf(undefined, 'foo')).toBeUndefined();
+            expect(MINode.valueOf(null, 'foo')).toBeUndefined();
+        });
+
+        it('valueOf returns undefined when path segment is not a variable, @, or index (lines 129-130)', () => {
+            // '#' does not match pathRegex, is not '@', does not match indexRegex
+            const results: [string, any][] = [['key', 'val']];
+            expect(MINode.valueOf(results, 'key.#bad')).toBeUndefined();
+        });
+    });
+
+    describe('parseMI edge cases', () => {
+        it('parseTupleOrList handles nested tuple with key=value pairs', () => {
+            const result = parseMI('^done,locals=[{name="x",value="42",type="int"}]');
+            expect(result).toBeDefined();
+            expect(result?.resultRecords?.resultClass).toBe('done');
+        });
+
+        it('parseString handles octal escape sequences (\\141 = "a")', () => {
+            // GDB outputs octal like \141 = 'a' (ASCII 97, octal 141)
+            // escapeMap has '0' but NOT '1', so \141 goes through octalMatch path
+            const result = parseMI('~"\\141"');
+            const record = result?.outOfBandRecord?.[0];
+            if (record && record.isStream) {
+                expect(record.content).toBe('a');
+            } else {
+                expect.fail('Expected stream record');
+            }
+        });
+
+        it('parseString handles unknown escape as literal char', () => {
+            // \q is not in escapeMap → written as literal 'q'
+            const result = parseMI('~"hello\\qworld"');
+            const record = result?.outOfBandRecord?.[0];
+            if (record && record.isStream) {
+                expect(record.content).toContain('q');
+            } else {
+                expect.fail('Expected stream record');
+            }
+        });
+
+        it('parseResult returns undefined when list item starts with non-variable char', () => {
+            // [123] → inside parseTupleOrList, parseResult() is called on "123]"
+            // variableRegex fails on digit → returns undefined (lines 289-290)
+            const result = parseMI('^done,locals=[123]');
+            expect(result?.resultRecords?.resultClass).toBe('done');
+            // 'locals' key is present but its value couldn't be parsed as a tuple
+            expect(result?.resultRecords?.results).toBeDefined();
+        });
+
+        it('parseCString returns empty string when stream record has no opening quote (lines 211-212)', () => {
+            // After consuming '~', output = 'no-string\n' which doesn't start with '"'
+            // parseCString early-return path: if (output[0] !== '"') return ''
+            const result = parseMI('~no-string\n');
+            const record = result?.outOfBandRecord?.[0];
+            expect(record?.isStream).toBe(true);
+            if (record?.isStream) {
+                expect(record.content).toBe('');
+            }
         });
     });
 });

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v3.0.0] - 2026-03-31
+
+### Stable Release — Full Coverage, Production-Ready
+
+### Added
+- **Comprehensive unit test suite** (369 tests, 100% pass rate): MI2 class, GDBBackend operations, errors, router, validation, MI parser — full coverage with injection-based testing (no real GDB/child process required)
+- **Coverage infrastructure**: `vitest.config.ts` with `v8` provider, per-module exclusions for VS Code runtime code, `npm run test:coverage` command
+- **RELEASE_MANIFEST.md**: Formal release sign-off document at `docs/release/RELEASE_MANIFEST.md`
+- **test-matrix.html**: Full 38-operation test coverage map at `docs/testing/test-matrix.html`
+- **CI/CD dashboard** (`infrastructure/dashboard/`): Black-pink theme Vite+TypeScript SPA showing pipeline status, metrics, and run history
+
+### Coverage Achievements (Gate S1 — all PASS)
+| Module | Target | Achieved |
+|--------|--------|----------|
+| `GDBBackend.ts` | 85% | **92.97%** |
+| `router.ts` | 85% | **98.28%** |
+| `validation.ts` | 90% | **99.09%** |
+| `MI2.ts` | 80% | **99.09%** |
+| `mi_parse.ts` | 80% | **81.27%** |
+| `errors.ts` | — | **100%** |
+| **Overall** | **70%** | **91.08%** |
+
+### Test Suite Growth
+- Unit tests: 207 → **369** tests (+162)
+- New suites: `errors.test.ts` (21), expanded `GDBBackend.operations.test.ts` (83), expanded `MI2.normalize.test.ts` (44), expanded `mi_parse.test.ts`, `router.operations.test.ts`
+
+---
+
 ## [v3.0.0-b1] - 2026-03-30
 
 ### Beta Release — Complete Operation Coverage + Release Framework

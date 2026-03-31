@@ -103,6 +103,9 @@ def _handle_operation(op: str, params: dict) -> dict:
         s["iteration"] = 0
         return _ok()
 
+    if op == "start":
+        return _ok()
+
     # Execution
     if op in ("continue", "next", "step_in", "step_out", "pause"):
         return _ok()
@@ -289,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/ping":
             ops = [
-                "launch","attach","terminate","restart","continue","next","step_in",
+                "launch","attach","terminate","restart","start","continue","next","step_in",
                 "step_out","pause","jump","until","set_breakpoint","set_temp_breakpoint",
                 "remove_breakpoint","remove_all_breakpoints_in_file","get_active_breakpoints",
                 "stack_trace","up","down","goto_frame","get_variables","get_arguments",

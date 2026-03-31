@@ -103,32 +103,33 @@ async function routeRequest(
  * Handle ping request
  */
 function handlePing(): any {
+    const operations = [
+        // Session
+        "launch", "attach", "terminate", "restart", "start",
+        // Execution
+        "continue", "next", "step_in", "step_out", "pause", "jump", "until",
+        // Frame navigation
+        "up", "down", "goto_frame",
+        // Breakpoints
+        "set_breakpoint", "set_temp_breakpoint", "remove_breakpoint",
+        "remove_all_breakpoints_in_file", "get_active_breakpoints",
+        // Inspection
+        "stack_trace", "get_variables", "get_arguments", "get_globals",
+        "evaluate", "get_registers", "read_memory", "write_memory",
+        "list_source", "get_source", "pretty_print", "whatis",
+        "execute_statement", "list_all_locals", "get_scope_preview",
+        // Threading
+        "list_threads", "switch_thread",
+        // Info
+        "get_last_stop_info", "get_capabilities"
+    ];
     return {
         success: true,
         data: {
             message: "pong",
             version: "v3.a1",
-            operations: [
-                // Session
-                "launch", "attach", "terminate", "restart",
-                // Execution
-                "continue", "next", "step_in", "step_out", "pause", "jump", "until",
-                // Frame navigation
-                "up", "down", "goto_frame",
-                // Breakpoints
-                "set_breakpoint", "set_temp_breakpoint", "remove_breakpoint",
-                "remove_all_breakpoints_in_file", "get_active_breakpoints",
-                // Inspection
-                "stack_trace", "get_variables", "get_arguments", "get_globals",
-                "evaluate", "get_registers", "read_memory", "write_memory",
-                "list_source", "get_source", "pretty_print", "whatis",
-                "execute_statement", "list_all_locals", "get_scope_preview",
-                // Threading
-                "list_threads", "switch_thread",
-                // Info
-                "get_last_stop_info", "get_capabilities"
-            ],
-            operationCount: 40
+            operations,
+            operationCount: operations.length
         },
         timestamp: new Date().toISOString()
     };
@@ -273,6 +274,7 @@ async function handleDebugOperation(body: any): Promise<any> {
 async function executeBackendOperation(backend: IDebugBackend, operation: string, params: any): Promise<any> {
     switch (operation) {
         // Session
+        /* v8 ignore next 2 -- launch is handled above and returns before reaching here */
         case 'launch':
             return await backend.launch(params);
         case 'attach':
@@ -395,6 +397,7 @@ async function executeBackendOperation(backend: IDebugBackend, operation: string
         case 'get_capabilities':
             return backend.getCapabilities();
 
+        /* v8 ignore next 2 -- validation rejects unknown operations before reaching here */
         default:
             throw new Error(`Unknown operation: ${operation}`);
     }
