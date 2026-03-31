@@ -106,22 +106,15 @@
         "test:e2e": "node ./out/test/runTest.js"
     },
     "devDependencies": {
-
-        "@playwright/test": "^1.54.1",
-        "@seontechnologies/playwright-utils": "latest",
         "@types/glob": "^8.1.0",
-        "@types/jest": "^30.0.0",
         "@types/mocha": "^10.0.10",
         "@types/node": "^20.0.0",
         "@types/vscode": "^1.88.0",
         "@vitest/coverage-v8": "^3.2.4",
         "@vscode/test-electron": "^2.5.2",
-        "axios": "^1.13.6",
         "esbuild": "^0.20.0",
         "glob": "^13.0.6",
-        "jest": "^30.3.0",
         "mocha": "^11.7.5",
-        "ts-jest": "^29.4.6",
         "typescript": "^5.3.0",
         "vitest": "^3.2.4"
     },
