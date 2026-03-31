@@ -5,13 +5,12 @@ import { renderJobNode, NODE_WIDTH, NODE_HEIGHT } from './JobNode';
 import { renderJobDetail } from './JobDetail';
 import type { WorkflowRun, JobRun } from '../../types';
 
-// Layout: 5 columns
+// Layout: 4 columns
 // Col 0: lint, unit-tests, mcp-tests, security (parallel)
 // Col 1: build (needs lint)
 // Col 2: ci-gate (needs all)
-// Col 3: dashboard / build (needs ci-gate)
-// Col 4: dashboard-deploy (needs dashboard, push-only)
-const COL_X = [10, 210, 410, 600, 790];
+// Col 3: dashboard (needs ci-gate)
+const COL_X = [20, 240, 460, 660];
 const ROW_GAP = 70;
 const START_Y = 30;
 
@@ -20,16 +19,14 @@ interface JobPos { x: number; y: number; id: string; }
 function layoutJobs(): JobPos[] {
   const positions: JobPos[] = [];
   const col0 = PIPELINE_JOBS.filter(j => j.needs.length === 0);
-  const col1 = PIPELINE_JOBS.filter(j => j.needs.length > 0 && j.id !== 'ci-gate' && j.id !== 'dashboard' && j.id !== 'dashboard-deploy');
+  const col1 = PIPELINE_JOBS.filter(j => j.needs.length > 0 && j.id !== 'ci-gate' && j.id !== 'dashboard');
   const col2 = PIPELINE_JOBS.filter(j => j.id === 'ci-gate');
   const col3 = PIPELINE_JOBS.filter(j => j.id === 'dashboard');
-  const col4 = PIPELINE_JOBS.filter(j => j.id === 'dashboard-deploy');
 
   col0.forEach((j, i) => positions.push({ id: j.id, x: COL_X[0], y: START_Y + i * ROW_GAP }));
   col1.forEach((j, i) => positions.push({ id: j.id, x: COL_X[1], y: START_Y + 35 + i * ROW_GAP }));
   col2.forEach((j, i) => positions.push({ id: j.id, x: COL_X[2], y: START_Y + 100 + i * ROW_GAP }));
   col3.forEach((j, i) => positions.push({ id: j.id, x: COL_X[3], y: START_Y + 100 + i * ROW_GAP }));
-  col4.forEach((j, i) => positions.push({ id: j.id, x: COL_X[4], y: START_Y + 100 + i * ROW_GAP }));
 
   return positions;
 }
@@ -43,7 +40,6 @@ function findJobRun(jobs: JobRun[], pipelineId: string): JobRun | null {
     'security': 'security',
     'ci-gate': 'ci gate',
     'dashboard': 'build dashboard',
-    'dashboard-deploy': 'deploy to github',
   };
   const search = nameMap[pipelineId] || pipelineId;
   return jobs.find(j => j.name.toLowerCase().includes(search)) || null;
@@ -82,7 +78,7 @@ export function renderPipelineView(runs: WorkflowRun[]): HTMLElement {
   function renderSvg() {
     const jobs = selectedRun?.jobs || [];
     const svg = svgEl('svg', {
-      viewBox: '0 0 1000 340',
+      viewBox: '0 0 880 340',
       class: 'pipeline-svg',
       preserveAspectRatio: 'xMidYMid meet',
     }) as unknown as SVGSVGElement;

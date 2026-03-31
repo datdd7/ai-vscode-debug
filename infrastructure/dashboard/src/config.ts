@@ -13,7 +13,6 @@ export const PIPELINE_JOBS: PipelineJob[] = [
   { id: 'build',      name: 'Build & Package VSIX',             needs: ['lint'] },
   { id: 'ci-gate',    name: 'CI Gate',                          needs: ['lint', 'unit-tests', 'mcp-tests', 'build', 'security'] },
   { id: 'dashboard',         name: 'Build Dashboard',           needs: ['ci-gate'] },
-  { id: 'dashboard-deploy', name: 'Deploy to Pages',           needs: ['dashboard'] },
 ];
 
 export const TEST_CATEGORIES: TestCategory[] = [

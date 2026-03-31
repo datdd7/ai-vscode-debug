@@ -13,7 +13,6 @@ function makeJobs(conclusion: 'success' | 'failure', failJob?: string): JobRun[]
     { id: 5, name: 'Security Audit',                    needs: [] },
     { id: 6, name: 'CI Gate',                           needs: ['lint','unit-tests','mcp-tests','build','security'] },
     { id: 7, name: 'Build Dashboard',                   needs: ['ci-gate'] },
-    { id: 8, name: 'Deploy to GitHub Pages',            needs: ['dashboard'] },
   ];
 
   return jobs.map((j, i) => ({
