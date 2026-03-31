@@ -18,7 +18,6 @@ const TABS: { id: View; label: string }[] = [
 
 let currentView: View = 'pipeline';
 let runs: WorkflowRun[] = [];
-let useMock = false;
 
 const app = document.getElementById('app')!;
 
@@ -56,17 +55,6 @@ function renderNav(): HTMLElement {
   });
   nav.appendChild(refresh);
 
-  // Mock toggle
-  const mockBtn = h('button', { className: 'nav-refresh' });
-  mockBtn.textContent = useMock ? 'Live' : 'Demo';
-  mockBtn.title = useMock ? 'Switch to live GitHub API' : 'Switch to demo data';
-  mockBtn.addEventListener('click', async () => {
-    useMock = !useMock;
-    await loadData();
-    render();
-  });
-  nav.appendChild(mockBtn);
-
   return nav;
 }
 
@@ -85,11 +73,6 @@ function render() {
 }
 
 async function loadData() {
-  if (useMock) {
-    runs = MOCK_RUNS;
-    return;
-  }
-
   try {
     const rawRuns = await fetchWorkflowRuns(20);
     // Load jobs for latest 5 runs
@@ -109,7 +92,6 @@ async function loadData() {
     ];
   } catch (err) {
     console.warn('GitHub API failed, using mock data:', err);
-    useMock = true;
     runs = MOCK_RUNS;
   }
 }
