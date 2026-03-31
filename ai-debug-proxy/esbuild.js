@@ -25,7 +25,7 @@ const buildOptions = {
   ],
   bundle: true,
   outdir: path.join(__dirname, "out"),
-  external: ["vscode", "mocha"],
+  external: ["vscode", "mocha", "axios"],
   format: "cjs",
   platform: "node",
   target: "node18",
