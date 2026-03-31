@@ -135,11 +135,13 @@ function log(
   const tag = level.toUpperCase().padEnd(5);
   const line = `[${formatTimestamp()}] ${tag} [${component}] ${message}`;
   outputChannel.appendLine(line);
+  console.log(line); // Mirror to console for E2E terminal visibility
 
   let extra = "";
   if (data !== undefined) {
     extra = `\n  └─ ${stringifySafe(data)}`;
     outputChannel.appendLine(`  └─ ${stringifySafe(data)}`);
+    console.log(`  └─ ${stringifySafe(data)}`); // Mirror to console
   }
 
   try {

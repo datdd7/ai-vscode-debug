@@ -1,0 +1,98 @@
+@startuml Debug Session Flow
+title Debug Session Lifecycle Flow
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+participant "User" as User
+participant "VS Code UI" as VSCode
+participant "DebugAdapter" as DA
+participant "BackendManager" as BM
+participant "GDBBackend" as GDB
+participant "MI2" as MI2
+participant "GDB Process" as GDBP
+
+== Launch Session ==
+
+User -> VSCode : Press F5
+VSCode -> DA : launchRequest(program)
+DA -> BM : getBackend("gdb")
+BM -> GDB : Create GDBBackend
+GDB -> MI2 : spawn("gdb --interpreter=mi2")
+MI2 -> GDBP : Start process
+GDBP --> MI2 : =thread-group-added
+
+GDB -> MI2 : sendCommand("-file-exec-and-symbols")
+MI2 -> GDBP : Load binary
+GDBP --> MI2 : ^done
+
+GDB -> MI2 : sendCommand("-break-insert main")
+MI2 -> GDBP : Set breakpoint
+GDBP --> MI2 : ^done,bkpt={...}
+
+GDB -> MI2 : sendCommand("-exec-run")
+MI2 -> GDBP : Run program
+GDBP --> MI2 : ^running
+GDBP --> MI2 : *stopped,reason="breakpoint-hit"
+
+MI2 --> GDB : Event: stopped(bkpt)
+GDB --> BM : StopEvent
+BM --> DA : StopEvent
+DA -> VSCode : StoppedEvent(reason="entry")
+VSCode -> VSCode : Highlight line 33
+VSCode -> User : Show debug toolbar
+
+== Step Over ==
+
+User -> VSCode : Press F10 (Step Over)
+VSCode -> DA : nextRequest()
+DA -> BM : executeOperation("stepOver")
+BM -> GDB : stepOver()
+GDB -> MI2 : sendCommand("-exec-next")
+MI2 -> GDBP : Step to next line
+GDBP --> MI2 : *stopped,reason="end-stepping-range"
+
+MI2 --> GDB : Event: stopped
+GDB --> BM : StopEvent
+BM --> DA : StopEvent
+DA -> VSCode : StoppedEvent(reason="step")
+VSCode -> VSCode : Highlight line 34
+VSCode -> User : Update UI
+
+== Continue to Breakpoint ==
+
+User -> VSCode : Press F5 (Continue)
+VSCode -> DA : continueRequest()
+DA -> BM : executeOperation("continue")
+BM -> GDB : continue()
+GDB -> MI2 : sendCommand("-exec-continue")
+MI2 -> GDBP : Continue execution
+GDBP --> MI2 : ^running
+GDBP --> MI2 : *stopped,reason="breakpoint-hit"
+
+MI2 --> GDB : Event: stopped(bkpt)
+GDB --> BM : StopEvent
+BM --> DA : StopEvent
+DA -> VSCode : StoppedEvent(reason="breakpoint")
+VSCode -> VSCode : Highlight breakpoint line
+VSCode -> User : Show variables
+
+== Terminate Session ==
+
+User -> VSCode : Click Stop button
+VSCode -> DA : terminateRequest()
+DA -> BM : executeOperation("terminate")
+BM -> GDB : terminate()
+GDB -> MI2 : sendCommand("-gdb-exit")
+MI2 -> GDBP : Exit command
+GDBP --> MI2 : =thread-exited
+GDBP --> MI2 : =thread-group-exited
+GDBP --> MI2 : Exit
+
+MI2 --> GDB : Process exited
+GDB --> BM : Terminated
+BM --> DA : Terminated
+DA -> VSCode : TerminatedEvent
+VSCode -> VSCode : Close debug toolbar
+VSCode -> User : Session ended
+
+@enduml

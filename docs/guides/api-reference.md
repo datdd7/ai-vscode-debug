@@ -1,6 +1,8 @@
-# API Reference
+# API Reference — AI Debug Proxy v3
 
-Base URL: `http://localhost:9999`
+**Version:** 3.0.0-b1
+**Base URL:** `http://localhost:9999`
+**Last Updated:** 2026-03-30
 
 All request/response bodies are JSON. All responses include a `timestamp` field (ISO 8601).
 
@@ -10,20 +12,18 @@ All request/response bodies are JSON. All responses include a `timestamp` field 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/ping` | Health check, returns available operations |
-| GET | `/api/status` | Current session status |
-| POST | `/api/debug` | Execute a debug operation |
+| GET | `/api/ping` | Health check |
+| GET | `/api/debug/status` | Session status |
+| POST | `/api/debug/execute_operation` | Execute a debug operation |
 | POST | `/api/subagents` | Spawn concurrent CLI subagents |
-| POST | `/api/commands` | Execute a macro command |
-| GET | `/api/symbols?fsPath=` | LSP document symbols |
-| GET | `/api/references?fsPath=&line=&character=` | LSP find references |
-| GET | `/api/call-hierarchy?fsPath=&line=&character=&direction=` | LSP call hierarchy |
+
+> `/api/debug` is a backward-compatible alias for `/api/debug/execute_operation`.
 
 ---
 
 ## GET /api/ping
 
-Health check. Always succeeds even when no debug session is active.
+Health check. Always succeeds even without an active session.
 
 **Response:**
 ```json
@@ -31,18 +31,18 @@ Health check. Always succeeds even when no debug session is active.
   "success": true,
   "data": {
     "message": "pong",
-    "version": "0.1.6",
-    "operations": ["launch", "restart", "quit", "continue", ...]
+    "version": "3.0.0-b1",
+    "operations": ["launch", "attach", "terminate", ...]
   },
-  "timestamp": "2026-03-11T10:00:00.000Z"
+  "timestamp": "2026-03-30T10:00:00.000Z"
 }
 ```
 
 ---
 
-## GET /api/status
+## GET /api/debug/status
 
-Returns current debug session state.
+Returns the current debug session state.
 
 **Response:**
 ```json
@@ -51,7 +51,9 @@ Returns current debug session state.
   "data": {
     "hasActiveSession": true,
     "sessionId": "abc123-...",
-    "sessionName": "AI Debug Proxy"
+    "sessionName": "AI Debug Proxy",
+    "currentThreadId": 1,
+    "currentFrameId": 0
   },
   "timestamp": "..."
 }
@@ -59,9 +61,9 @@ Returns current debug session state.
 
 ---
 
-## POST /api/debug
+## POST /api/debug/execute_operation
 
-Main debug operations endpoint.
+Execute any of the 38 supported debug operations.
 
 **Request body:**
 ```json
@@ -71,7 +73,7 @@ Main debug operations endpoint.
 }
 ```
 
-**Response body (success):**
+**Response (success):**
 ```json
 {
   "success": true,
@@ -81,7 +83,7 @@ Main debug operations endpoint.
 }
 ```
 
-**Response body (error):**
+**Response (error):**
 ```json
 {
   "success": false,
@@ -103,10 +105,10 @@ Start a debug session.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `program` | string | * | Absolute path to binary. Preferred over `configName`. |
-| `configName` | string | * | Named config from `.vscode/launch.json`. |
-| `workspacePath` | string | no | Project root for resolving `configName` when the project folder is not open in VS Code. |
-| `stopOnEntry` | boolean | no | Stop at program entry point (default: `false`) |
+| `program` | string | * | Absolute path to binary |
+| `configName` | string | * | Named config from `.vscode/launch.json` |
+| `workspacePath` | string | no | Project root when using `configName` |
+| `stopOnEntry` | boolean | no | Stop at entry point (default: `false`) |
 | `args` | string[] | no | CLI arguments |
 | `cwd` | string | no | Working directory |
 | `env` | object | no | Environment variables |
@@ -114,58 +116,53 @@ Start a debug session.
 
 *Either `program` or `configName` is required.
 
-> **Recommendation:** Always use `program` for reliability. Use `configName` + `workspacePath` only when the launch config has complex settings that cannot be replicated inline.
-
-**Example — program path:**
 ```json
 {
   "operation": "launch",
   "params": {
     "program": "/home/user/project/build/my_app",
-    "stopOnEntry": true,
-    "type": "cppdbg"
-  }
-}
-```
-
-**Example — config name:**
-```json
-{
-  "operation": "launch",
-  "params": {
-    "configName": "Debug on Linux",
-    "workspacePath": "/home/user/project"
+    "stopOnEntry": true
   }
 }
 ```
 
 **Response:**
 ```json
-{
-  "success": true,
-  "sessionId": "abc123",
-  "stopReason": "entry"
-}
+{ "success": true, "sessionId": "abc123", "stopReason": "entry" }
+```
+
+---
+
+#### `attach`
+
+Attach to a running process by PID.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `processId` | number | yes | PID of the target process |
+
+```json
+{ "operation": "attach", "params": { "processId": 1234 } }
+```
+
+---
+
+#### `terminate`
+
+Terminate the active debug session and stop the debugged process.
+
+```json
+{ "operation": "terminate" }
 ```
 
 ---
 
 #### `restart`
 
-Restart the current debug session.
+Restart the current debug session from the beginning.
 
 ```json
 { "operation": "restart" }
-```
-
----
-
-#### `quit`
-
-Stop and terminate the current debug session.
-
-```json
-{ "operation": "quit" }
 ```
 
 ---
@@ -182,9 +179,9 @@ Resume execution until the next breakpoint or program end.
 
 ---
 
-#### `next`
+#### `next` / `step_over`
 
-Step over — execute one source line, not stepping into function calls.
+Step over — execute one source line without stepping into calls.
 
 ```json
 { "operation": "next" }
@@ -194,7 +191,7 @@ Step over — execute one source line, not stepping into function calls.
 
 #### `step_in`
 
-Step into — execute one source line, stepping into function calls.
+Step into — execute one source line, entering function calls.
 
 ```json
 { "operation": "step_in" }
@@ -212,14 +209,23 @@ Step out — run until the current function returns.
 
 ---
 
+#### `pause`
+
+Interrupt execution and stop all threads.
+
+```json
+{ "operation": "pause" }
+```
+
+---
+
 #### `jump`
 
-Jump execution to a specific line in the current file (no execution between current and target line).
+Jump execution to a specific line (no code between current and target is executed).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `line` | number | yes | Target line number (1-based) |
-| `frameId` | number | no | Frame to jump within (default: top frame) |
 
 ```json
 { "operation": "jump", "params": { "line": 42 } }
@@ -227,7 +233,21 @@ Jump execution to a specific line in the current file (no execution between curr
 
 ---
 
-### Breakpoints
+#### `until`
+
+Run until a specific line is reached (like a temporary breakpoint).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `line` | number | yes | Target line number |
+
+```json
+{ "operation": "until", "params": { "line": 100 } }
+```
+
+---
+
+### Breakpoint Management
 
 #### `set_breakpoint`
 
@@ -237,8 +257,8 @@ Set a persistent breakpoint.
 |-------|------|----------|-------------|
 | `location.path` | string | yes | Absolute path to source file |
 | `location.line` | number | yes | Line number (1-based) |
-| `condition` | string | no | Conditional expression (e.g., `"x > 5"`) |
-| `hitCondition` | string | no | Hit count expression (e.g., `"10"`) |
+| `condition` | string | no | Conditional expression, e.g., `"x > 5"` |
+| `hitCondition` | string | no | Hit count expression, e.g., `"10"` |
 | `logMessage` | string | no | Log message instead of stopping |
 
 ```json
@@ -253,62 +273,15 @@ Set a persistent breakpoint.
 
 ---
 
-#### `set_breakpoints`
-
-Batch: set multiple breakpoints in a single file atomically. More efficient than multiple `set_breakpoint` calls.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `file` | string | yes | Absolute path to source file |
-| `breakpoints` | array | yes | Array of `{line, condition?, hitCondition?, logMessage?}` |
-
-```json
-{
-  "operation": "set_breakpoints",
-  "params": {
-    "file": "/path/to/file.c",
-    "breakpoints": [
-      { "line": 42 },
-      { "line": 100, "condition": "errorCode != 0" }
-    ]
-  }
-}
-```
-
----
-
 #### `set_temp_breakpoint`
 
-Set a breakpoint that auto-removes after the first hit.
-
-Same params as `set_breakpoint`.
-
----
-
-#### `watch`
-
-Set a watchpoint (data breakpoint) on a variable. Stops execution when the variable is read/written.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | yes | Variable name |
-| `accessType` | string | no | `"read"`, `"write"` (default), or `"readWrite"` |
-| `condition` | string | no | Optional hit condition |
-
-```json
-{
-  "operation": "watch",
-  "params": { "name": "errorCode", "accessType": "write" }
-}
-```
-
-> **Note:** Attempts DAP `dataBreakpointInfo` path first; falls back to GDB `watch`/`rwatch`/`awatch` command via repl if `vscode.DataBreakpoint` API is unavailable.
+Set a breakpoint that auto-removes after the first hit. Same params as `set_breakpoint`.
 
 ---
 
 #### `remove_breakpoint`
 
-Remove a breakpoint at a specific location.
+Remove a specific breakpoint.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -317,43 +290,41 @@ Remove a breakpoint at a specific location.
 
 ---
 
-#### `toggle_breakpoint`
+#### `remove_all_breakpoints_in_file`
 
-Enable or disable a breakpoint without removing it.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `location.path` | string | yes | Source file path |
-| `location.line` | number | yes | Line number |
-| `enable` | boolean | yes | `true` to enable, `false` to disable |
-
----
-
-#### `set_breakpoint_condition`
-
-Update the condition on an existing breakpoint.
+Remove all breakpoints in a given source file.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `location.path` | string | yes | Source file path |
-| `location.line` | number | yes | Line number |
-| `condition` | string/null | yes | New condition, or `null` to clear |
+| `filePath` | string | yes | Absolute path to source file |
+
+```json
+{ "operation": "remove_all_breakpoints_in_file", "params": { "filePath": "/path/to/file.c" } }
+```
 
 ---
 
-#### `ignore_breakpoint`
+#### `get_active_breakpoints`
 
-Set an ignore (skip) count on a breakpoint.
+List all currently active breakpoints.
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `location.path` | string | yes | Source file path |
-| `location.line` | number | yes | Line number |
-| `ignoreCount` | number/null | yes | Skip N hits before stopping, or `null` to reset |
+```json
+{ "operation": "get_active_breakpoints" }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "breakpoints": [
+    { "id": 1, "path": "/path/to/file.c", "line": 42, "enabled": true, "condition": null }
+  ]
+}
+```
 
 ---
 
-### Inspection
+### Stack Navigation
 
 #### `stack_trace`
 
@@ -367,15 +338,179 @@ Get the current call stack.
 ```json
 {
   "success": true,
-  "frames": [
-    { "id": 1, "name": "main", "sourcePath": "/path/file.c", "line": 42, "column": 0 },
-    { "id": 2, "name": "caller", "sourcePath": "/path/file.c", "line": 10, "column": 0 }
+  "data": [
+    { "id": 0, "name": "main", "sourcePath": "/path/file.c", "line": 42, "column": 0 },
+    { "id": 1, "name": "caller", "sourcePath": "/path/file.c", "line": 10 }
   ],
   "totalFrames": 2
 }
 ```
 
 ---
+
+#### `up` / `frame_up`
+
+Move one frame up (toward the caller). Updates the active frame context for subsequent variable/expression calls.
+
+```json
+{ "operation": "up" }
+```
+
+---
+
+#### `down` / `frame_down`
+
+Move one frame down (toward the callee).
+
+```json
+{ "operation": "down" }
+```
+
+---
+
+#### `goto_frame`
+
+Jump to a specific stack frame by ID.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `frameId` | number | yes | Frame ID from `stack_trace` |
+
+```json
+{ "operation": "goto_frame", "params": { "frameId": 3 } }
+```
+
+---
+
+### Variable Inspection
+
+#### `get_variables`
+
+Get local variables for the current (or specified) frame.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `frameId` | number | no | Frame ID (default: active frame) |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "name": "x", "value": "42", "type": "int" },
+    { "name": "ptr", "value": "0x55555557f2a0", "type": "char *" }
+  ]
+}
+```
+
+---
+
+#### `get_arguments`
+
+Get function argument variables for the current frame.
+
+```json
+{ "operation": "get_arguments" }
+```
+
+---
+
+#### `get_globals`
+
+Get global variable values. May return a large list for programs with many globals.
+
+```json
+{ "operation": "get_globals" }
+```
+
+---
+
+#### `list_all_locals`
+
+Get all locals (variables + arguments) for the current frame.
+
+```json
+{ "operation": "list_all_locals" }
+```
+
+---
+
+#### `get_scope_preview`
+
+Get a compact scope snapshot: locals + arguments combined. Useful for AI context gathering.
+
+```json
+{ "operation": "get_scope_preview" }
+```
+
+---
+
+#### `evaluate`
+
+Evaluate an expression in the current debug context.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `expression` | string | yes | Expression to evaluate |
+| `frameId` | number | no | Frame context (default: active frame) |
+| `context` | string | no | `"watch"` / `"repl"` / `"hover"` |
+
+```json
+{ "operation": "evaluate", "params": { "expression": "temperature + offset" } }
+```
+
+---
+
+#### `pretty_print`
+
+Pretty-print a complex variable (struct, array, pointer) with one level of field expansion.
+
+Same params as `evaluate`.
+
+**Response (struct):**
+```json
+{
+  "success": true,
+  "result": "{...}",
+  "type": "MyStruct",
+  "fields": [
+    { "name": "field1", "type": "int", "value": "42" },
+    { "name": "field2", "type": "char *", "value": "0x..." }
+  ]
+}
+```
+
+---
+
+#### `whatis`
+
+Show the type of an expression.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `expression` | string | yes | Variable or expression |
+
+```json
+{ "operation": "whatis", "params": { "expression": "myVar" } }
+```
+
+---
+
+#### `execute_statement`
+
+Execute a debug statement (e.g., call a function, GDB MI command).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `statement` | string | yes | Statement to execute (e.g., `"info locals"`) |
+
+```json
+{ "operation": "execute_statement", "params": { "statement": "info registers" } }
+```
+
+---
+
+### Source Navigation
 
 #### `list_source`
 
@@ -397,95 +532,23 @@ Show source code around the current execution line.
 
 ---
 
-#### `evaluate`
+#### `get_source`
 
-Evaluate an expression in the current debug context.
+Get the full source of a file or symbol.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `expression` | string | yes | Expression to evaluate |
-| `frameId` | number | no | Frame context (default: top frame) |
-| `context` | string | no | `"watch"` / `"repl"` / `"hover"` |
-
-> **Security:** Expressions containing `=` (assignment) trigger a user approval dialog before execution.
+| `expression` | string | yes | Symbol name or file path (relative paths blocked) |
 
 ```json
-{
-  "operation": "evaluate",
-  "params": { "expression": "temperature + offset" }
-}
+{ "operation": "get_source", "params": { "expression": "main" } }
 ```
-
----
-
-#### `pretty_print`
-
-Pretty-print a complex variable (struct, array, pointer) with one level of field expansion.
-
-Same params as `evaluate`.
-
-**Response (struct):**
-```json
-{
-  "success": true,
-  "result": "{...}",
-  "type": "ecy_hsm_SymCipherDrv_JobContextT",
-  "variablesReference": 1010,
-  "fields": [
-    { "name": "paddingMode", "type": "ecy_hsm_Csai_PaddingModeT", "value": "ecy_hsm_CSAI_PAD_NONE" },
-    { "name": "errorState",  "type": "uint32",                    "value": "0" }
-  ]
-}
-```
-
-`fields` is omitted for scalar types or when expansion fails.
-
----
-
-#### `whatis`
-
-Show the type of an expression.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `expression` | string | yes | Variable or expression |
-
----
-
-#### `execute_statement`
-
-Execute a debug statement (e.g., call a function, assign a variable). Requires user approval.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `statement` | string | yes | Statement to execute |
-
----
-
-#### `up` / `down`
-
-Navigate to the calling/called frame in the stack. Updates the active frame context for subsequent `evaluate` and `get_stack_frame_variables` calls.
-
-```json
-{ "operation": "up" }
-{ "operation": "down" }
-```
-
----
-
-#### `goto_frame`
-
-Jump to a specific stack frame by ID.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `frameId` | number | yes | Frame ID from `stack_trace` |
 
 ---
 
 #### `get_last_stop_info`
 
-Get information about the last stop event (breakpoint hit, exception, entry, etc.).
+Get information about the last stop event.
 
 ```json
 { "operation": "get_last_stop_info" }
@@ -495,11 +558,141 @@ Get information about the last stop event (breakpoint hit, exception, entry, etc
 ```json
 {
   "success": true,
-  "sessionId": "abc123",
-  "stopInfo": {
-    "reason": "breakpoint",
+  "data": {
+    "reason": "breakpoint-hit",
     "threadId": 1,
-    "allThreadsStopped": true
+    "allThreadsStopped": true,
+    "bkptno": "1",
+    "frame": { "func": "main", "file": "main.c", "line": "42" }
+  }
+}
+```
+
+---
+
+### Hardware / Memory
+
+#### `get_registers`
+
+Get CPU register values.
+
+```json
+{ "operation": "get_registers" }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "name": "rax", "value": "0x0000000000000000" },
+    { "name": "rip", "value": "0x0000555555555195" }
+  ]
+}
+```
+
+---
+
+#### `read_memory`
+
+Read raw bytes from a memory address.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `memoryReference` | string | yes | Hex address, e.g., `"0x7fffffffe000"` |
+| `count` | number | yes | Number of bytes to read |
+| `offset` | number | no | Byte offset from `memoryReference` |
+
+```json
+{ "operation": "read_memory", "params": { "memoryReference": "0x7fffffffe000", "count": 16 } }
+```
+
+**Response:**
+```json
+{ "success": true, "data": { "address": "0x7fffffffe000", "data": "48656c6c6f..." } }
+```
+
+---
+
+#### `write_memory`
+
+Write bytes to a memory address (use with caution).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `address` | number | yes | Target address as integer |
+| `data` | string | no | Hex-encoded bytes to write, e.g., `"deadbeef"` |
+
+```json
+{ "operation": "write_memory", "params": { "address": 6295552, "data": "01020304" } }
+```
+
+**Response:**
+```json
+{ "success": true, "address": "0x600000", "bytesWritten": 4 }
+```
+
+---
+
+### Multi-Thread Debugging
+
+#### `list_threads`
+
+List all active threads with their current stack frame.
+
+```json
+{ "operation": "list_threads" }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "main", "state": "stopped", "frame": { "func": "main", "line": 42 } },
+    { "id": 2, "name": "worker_0", "state": "stopped", "frame": { "func": "worker", "line": 88 } }
+  ]
+}
+```
+
+---
+
+#### `switch_thread`
+
+Switch the active thread context. Subsequent `stack_trace`, `get_variables`, etc. operate on this thread.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | number | yes | Thread ID from `list_threads` |
+
+```json
+{ "operation": "switch_thread", "params": { "threadId": 2 } }
+```
+
+> **Note:** Resets the active frame to 0 (top of the new thread's stack).
+
+---
+
+### Capabilities
+
+#### `get_capabilities`
+
+Return the backend's declared capabilities.
+
+```json
+{ "operation": "get_capabilities" }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "supportsLaunch": true,
+    "supportsAttach": false,
+    "supportsTerminate": true,
+    "supportsReadMemory": true,
+    "supportsWriteMemory": true
   }
 }
 ```
@@ -519,15 +712,13 @@ Spawn concurrent CLI tasks as subagents. Requires user approval via VS Code dial
 ]
 ```
 
-**Task fields:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `id` | string | yes | Unique task identifier |
 | `command` | string | yes | Executable to run |
 | `args` | string[] | no | CLI arguments |
 | `stdin` | string | no | Data to pipe to stdin |
-| `timeout` | number | no | Timeout in ms (default: 30000) |
+| `timeout` | number | no | Timeout ms (default: 30000) |
 
 **Limits:** Maximum 50 concurrent tasks. Output truncated at 1 MB per task.
 
@@ -537,8 +728,53 @@ Spawn concurrent CLI tasks as subagents. Requires user approval via VS Code dial
 
 | HTTP Status | Meaning |
 |-------------|---------|
-| 200 | Success (check `data.success` for operation-level result) |
+| 200 | Success (check `success` field for operation-level result) |
 | 400 | Bad request — missing or invalid parameters |
 | 403 | User denied approval for a destructive operation |
 | 404 | Unknown endpoint |
 | 500 | Internal extension error |
+
+---
+
+## Operation Summary (38 total)
+
+| # | Operation | Category | No-param |
+|---|-----------|----------|----------|
+| 1 | `launch` | Session | |
+| 2 | `attach` | Session | |
+| 3 | `terminate` | Session | yes |
+| 4 | `restart` | Session | yes |
+| 5 | `continue` | Execution | yes |
+| 6 | `next` | Execution | yes |
+| 7 | `step_in` | Execution | yes |
+| 8 | `step_out` | Execution | yes |
+| 9 | `pause` | Execution | yes |
+| 10 | `jump` | Execution | |
+| 11 | `until` | Execution | |
+| 12 | `set_breakpoint` | Breakpoints | |
+| 13 | `set_temp_breakpoint` | Breakpoints | |
+| 14 | `remove_breakpoint` | Breakpoints | |
+| 15 | `remove_all_breakpoints_in_file` | Breakpoints | |
+| 16 | `get_active_breakpoints` | Breakpoints | yes |
+| 17 | `stack_trace` | Stack | yes |
+| 18 | `up` | Stack | yes |
+| 19 | `down` | Stack | yes |
+| 20 | `goto_frame` | Stack | |
+| 21 | `get_variables` | Variables | yes |
+| 22 | `get_arguments` | Variables | yes |
+| 23 | `get_globals` | Variables | yes |
+| 24 | `list_all_locals` | Variables | yes |
+| 25 | `get_scope_preview` | Variables | yes |
+| 26 | `evaluate` | Variables | |
+| 27 | `pretty_print` | Variables | |
+| 28 | `whatis` | Variables | |
+| 29 | `execute_statement` | Variables | |
+| 30 | `list_source` | Source | yes |
+| 31 | `get_source` | Source | |
+| 32 | `get_last_stop_info` | Source | yes |
+| 33 | `get_registers` | Hardware | yes |
+| 34 | `read_memory` | Hardware | |
+| 35 | `write_memory` | Hardware | |
+| 36 | `list_threads` | Threads | yes |
+| 37 | `switch_thread` | Threads | |
+| 38 | `get_capabilities` | Meta | yes |

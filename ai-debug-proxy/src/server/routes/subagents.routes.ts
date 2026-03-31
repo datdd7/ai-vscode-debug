@@ -43,7 +43,7 @@ import {
     subagentOrchestrator,
     SubagentTask,
 } from "../../agent/SubagentOrchestrator";
-import { ApiResponse } from "../../types";
+import { ApiResponse } from "../../core/types";
 
 /******************************************************************************
  * Public Interface

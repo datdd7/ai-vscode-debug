@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Debug Proxy v3.0 - Test Catalog</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@300;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #f472b6; /* Pink */
+            --secondary: #3b82f6; /* Blue */
+            --bg: #030712;
+            --card-bg: rgba(17, 24, 39, 0.7);
+            --text: #f9fafb;
+            --accent: #8b5cf6;
+            --glass: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            background: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #030712 100%);
+        }
+
+        header {
+            padding: 4rem 2rem;
+            text-align: center;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--accent), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: #9ca3af;
+            margin-top: 1rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 4rem auto;
+            padding: 0 2rem;
+        }
+
+        .filter-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 3rem;
+        }
+
+        .tab {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        .tab:hover, .tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(244, 114, 182, 0.3);
+        }
+
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
+        .test-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 2rem;
+            backdrop-filter: blur(12px);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .test-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary);
+            opacity: 0;
+            transition: 0.3s;
+        }
+
+        .test-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            border-color: var(--primary);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .test-card:hover::before {
+            opacity: 1;
+        }
+
+        .tag {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            margin: 0.5rem 0;
+        }
+
+        .description {
+            color: #9ca3af;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+
+        .meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            padding-top: 1rem;
+        }
+
+        .file {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--secondary);
+        }
+
+        .count {
+            color: #6b7280;
+        }
+
+        footer {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #4b5563;
+            font-size: 0.875rem;
+        }
+
+        .animate-in {
+            animation: fadeIn 0.8s ease forwards;
+            opacity: 0;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1 class="animate-in">V3.A0 ALPHA RELEASE</h1>
+        <p class="subtitle animate-in" style="animation-delay: 0.1s;">Technical Test Catalog & Validation Suite</p>
+    </header>
+
+    <div class="container">
+        <div class="filter-tabs animate-in" style="animation-delay: 0.2s;">
+            <div class="tab active" onclick="filterTests('all')">All Tests</div>
+            <div class="tab" onclick="filterTests('Functionality')">Functionality</div>
+            <div class="tab" onclick="filterTests('Requirements')">Requirements</div>
+            <div class="tab" onclick="filterTests('Coverage')">Coverage</div>
+            <div class="tab" onclick="filterTests('Use Case')">Use Case</div>
+            <div class="tab" onclick="filterTests('Security')">Security</div>
+        </div>
+
+        <div class="test-grid" id="testGrid">
+            <!-- GDBBackend Operations -->
+            <div class="test-card animate-in" data-category="Functionality Requirements" style="animation-delay: 0.3s;">
+                <span class="tag">Functionality | Requirements</span>
+                <h3>Debugger Core Operations</h3>
+                <p class="description">Validates core GDB behavior: launch, attach, breakpoints, stepping, variables, and stack trace management. Ensures MI2 commands are translated correctly.</p>
+                <div class="meta">
+                    <span class="file">GDBBackend.operations.test.ts</span>
+                    <span class="count">48 Tests</span>
+                </div>
+            </div>
+
+            <!-- MI Parse -->
+            <div class="test-card animate-in" data-category="Functionality" style="animation-delay: 0.4s;">
+                <span class="tag">Functionality | Protocol</span>
+                <h3>Machine Interface Parser</h3>
+                <p class="description">Robustness testing for GDB/MI output parsing. Handles async out-of-band records, stream output, and deep result record trees with discriminated unions.</p>
+                <div class="meta">
+                    <span class="file">mi_parse.test.ts</span>
+                    <span class="count">32 Tests</span>
+                </div>
+            </div>
+
+            <!-- Validation & Electron Use Cases -->
+            <div class="test-card animate-in" data-category="Coverage Use Case" style="animation-delay: 0.5s;">
+                <span class="tag">Coverage | Use Case (Electron)</span>
+                <h3>API Argument Validation</h3>
+                <p class="description">Exhaustive testing of command arguments. Specifically covers Electron framework use cases where complex paths and environment variables are passed to 'launch'.</p>
+                <div class="meta">
+                    <span class="file">validation.test.ts</span>
+                    <span class="count">112 Tests</span>
+                </div>
+            </div>
+
+            <!-- Security Suite -->
+            <div class="test-card animate-in" data-category="Security" style="animation-delay: 0.6s;">
+                <span class="tag">Security | Robustness</span>
+                <h3>Alpha Security Guard</h3>
+                <p class="description">Proactive security testing including REST payload fuzzing, path traversal protection, and buffer overflow prevention for local GDB communication.</p>
+                <div class="meta">
+                    <span class="file">security.test.ts</span>
+                    <span class="count">15 Tests</span>
+                </div>
+            </div>
+
+            <!-- Performance Suite -->
+            <div class="test-card animate-in" data-category="Functionality" style="animation-delay: 0.7s;">
+                <span class="tag">Performance | Benchmark</span>
+                <h3>Response Latency & Memory</h3>
+                <p class="description">Monitors API response times (<200ms) and detects memory leaks via JS heap snapshots during high-frequency stepping operations.</p>
+                <div class="meta">
+                    <span class="file">performance.test.ts</span>
+                    <span class="count">5 Benchmarks</span>
+                </div>
+            </div>
+
+            <!-- VS Code Integration -->
+            <div class="test-card animate-in" data-category="Requirements" style="animation-delay: 0.8s;">
+                <span class="tag">Requirements | Integration</span>
+                <h3>VS Code Extension Lifecycle</h3>
+                <p class="description">Ensures the extension activates correctly, registers commands, and provides the 'ai-debug' adapter type to the VS Code Debug UI.</p>
+                <div class="meta">
+                    <span class="file">extension.test.ts</span>
+                    <span class="count">8 Tests</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        &copy; 2026 AI Debug Proxy Development Team. Strict Quality Audit (Alpha-v3.0).
+    </footer>
+
+    <script>
+        function filterTests(category) {
+            const cards = document.querySelectorAll('.test-card');
+            const tabs = document.querySelectorAll('.tab');
+            
+            tabs.forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.innerText.includes(category) || (category === 'all' && tab.innerText === 'All Tests')) {
+                    tab.classList.add('active');
+                }
+            });
+
+            cards.forEach(card => {
+                if (category === 'all' || card.getAttribute('data-category').includes(category)) {
+                    card.style.display = 'block';
+                    card.style.animation = 'fadeIn 0.5s ease forwards';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

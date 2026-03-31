@@ -23,5 +23,8 @@
         "tests",
         "playwright.config.ts",
         "vitest.config.pact.ts"
+    ],
+    "include": [
+        "src/**/*"
     ]
 }

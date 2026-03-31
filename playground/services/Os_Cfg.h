@@ -10,7 +10,8 @@
 
 #define OS_MAX_TASKS        8u
 #define OS_TICK_PERIOD_MS   10u     /* 10ms tick */
-#define OS_MAX_ITERATIONS   200u    /* Max scheduler iterations before exit */
+#define OS_MAX_ITERATIONS    100000u
+    /* Max scheduler iterations before exit */
 
 /* Task IDs */
 #define OS_TASK_TEMP_MONITOR    0u  /* 10ms  */

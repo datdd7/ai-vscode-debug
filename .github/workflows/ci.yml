@@ -1,0 +1,251 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 1: Lint + Type Check
+# ──────────────────────────────────────────────────────────────────────────────
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-debug-proxy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: TypeScript lint (tsc --noEmit)
+        run: npm run lint
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 2: TypeScript Unit Tests (vitest)
+# ──────────────────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests (TypeScript/vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-debug-proxy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage -- --reporter=verbose
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ts-coverage
+          path: ai-debug-proxy/coverage/
+          retention-days: 7
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 3: Python MCP Server Tests (pytest + mock proxy)
+# ──────────────────────────────────────────────────────────────────────────────
+  mcp-tests:
+    name: MCP Server Tests (Python/pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-debug-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: mcp-debug-server/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests (mock proxy, no VS Code required)
+        run: pytest test_mcp_unit.py -v --tb=short
+
+      - name: Run comprehensive tests
+        run: pytest test_mcp_comprehensive.py -v --tb=short
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 4: Build & Package VSIX
+# ──────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build & Package VSIX
+    runs-on: ubuntu-latest
+    needs: [lint]
+    defaults:
+      run:
+        working-directory: ai-debug-proxy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Compile (esbuild)
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: Verify VSIX
+        run: |
+          ls -lh *.vsix
+          echo "VSIX_FILE=$(ls *.vsix)" >> "$GITHUB_ENV"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-debug-proxy-vsix
+          path: ai-debug-proxy/*.vsix
+          retention-days: 30
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 5: Security Audit
+# ──────────────────────────────────────────────────────────────────────────────
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-debug-proxy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: npm audit (high severity blocks CI)
+        run: npm audit --production --audit-level=high
+
+      - name: npm audit (moderate — informational)
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 6: CI Gate — all required jobs must pass
+# ──────────────────────────────────────────────────────────────────────────────
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, mcp-tests, build, security]
+    if: always()
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "lint:        ${{ needs.lint.result }}"
+          echo "unit-tests:  ${{ needs.unit-tests.result }}"
+          echo "mcp-tests:   ${{ needs.mcp-tests.result }}"
+          echo "build:       ${{ needs.build.result }}"
+          echo "security:    ${{ needs.security.result }}"
+
+          # Fail if any required job failed or was cancelled
+          for job in \
+            "${{ needs.lint.result }}" \
+            "${{ needs.unit-tests.result }}" \
+            "${{ needs.mcp-tests.result }}" \
+            "${{ needs.build.result }}" \
+            "${{ needs.security.result }}"; do
+            if [ "$job" != "success" ]; then
+              echo "CI FAILED: one or more jobs did not succeed"
+              exit 1
+            fi
+          done
+
+          echo "All CI jobs passed"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Job 7: Build & Deploy Dashboard → GitHub Pages
+# ──────────────────────────────────────────────────────────────────────────────
+  dashboard:
+    name: Deploy Dashboard
+    runs-on: ubuntu-latest
+    needs: [ci-gate]
+    if: needs.ci-gate.result == 'success' && github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ai-debug-proxy/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ai-debug-proxy
+        run: npm install --legacy-peer-deps
+
+      - name: Build dashboard
+        working-directory: infrastructure/dashboard
+        run: |
+          ln -s ../../ai-debug-proxy/node_modules node_modules
+          npx tsc --noEmit
+          npx vite build
+        env:
+          GITHUB_ACTIONS: 'true'
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: infrastructure/dashboard/dist
+
+      - id: deployment
+        name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

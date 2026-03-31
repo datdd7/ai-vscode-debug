@@ -1,0 +1,23 @@
+@startuml Component Diagram
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram - AI Debug Proxy v3.0
+
+Container_Boundary(ext, "AI Debug Proxy Extension") {
+    Component(vscode_layer, "VSCode Layer", "Extension Entry, Debug Adapter", "Handles VSCode lifecycle and adapter requests")
+    Component(server_layer, "Server Layer", "HTTP/REST API, Router", "Provides REST interface for AI agents")
+    Component(backend_layer, "Backend Layer", "BackendManager, GDBBackend", "Orchestrates debug sessions")
+    Component(protocol_layer, "Protocol Layer", "MI2, MI Parser", "Handles GDB/MI protocol communication")
+    Component(core_layer, "Core Layer", "IDebugBackend", "Defines agnostic debugging interfaces")
+    Component(utils_layer, "Utils Layer", "Validation, Logging", "Common utilities")
+}
+
+Rel(vscode_layer, backend_layer, "Uses")
+Rel(server_layer, backend_layer, "Uses")
+Rel(backend_layer, protocol_layer, "Uses")
+Rel(protocol_layer, core_layer, "Implements")
+Rel_U(backend_layer, core_layer, "Depends on")
+
+@enduml

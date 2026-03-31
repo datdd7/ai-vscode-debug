@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Debug Proxy v3.0 - Traceability Matrix</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@300;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #8b5cf6; /* Violet */
+            --secondary: #06b6d4; /* Cyan */
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f1f5f9;
+            --glass: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+            --success: #10b981;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            min-height: 100vh;
+        }
+
+        header {
+            padding: 3rem 2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            margin: 0;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 3rem auto;
+            padding: 0 2rem;
+        }
+
+        .matrix-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: var(--card-bg);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        th, td {
+            padding: 1.25rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.03);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            color: var(--secondary);
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .req-id {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .test-ref {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .category-header {
+            background: rgba(0, 0, 0, 0.2);
+            font-weight: 800;
+            color: white;
+            font-size: 1.1rem;
+            padding: 1rem 1.25rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Traceability Matrix</h1>
+        <p style="color: #94a3b8; margin-top: 0.5rem;">Mapping Requirements to Verification Evidence</p>
+    </header>
+
+    <div class="container">
+        <table class="matrix-table">
+            <thead>
+                <tr>
+                    <th style="width: 15%">Req ID</th>
+                    <th style="width: 45%">Requirement / Use Case</th>
+                    <th style="width: 30%">Test Evidence</th>
+                    <th style="width: 10%">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Core Functionality -->
+                <tr>
+                    <td colspan="4" class="category-header">1. Core Functionality</td>
+                </tr>
+                <tr>
+                    <td class="req-id">F-EXEC-01</td>
+                    <td>Execute operations (launch, continue, next, step) via REST API</td>
+                    <td class="test-ref">GDBBackend.operations.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+                <tr>
+                    <td class="req-id">F-EXEC-02</td>
+                    <td>Breakpoint management (set, remove, temp)</td>
+                    <td class="test-ref">GDBBackend.operations.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+                <tr>
+                    <td class="req-id">F-MI2-01</td>
+                    <td>Full GDB/MI output parsing including async records</td>
+                    <td class="test-ref">mi_parse.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+
+                <!-- Use Cases -->
+                <tr>
+                    <td colspan="4" class="category-header">2. Complex Use Cases</td>
+                </tr>
+                <tr>
+                    <td class="req-id">UC-ELECT-01</td>
+                    <td>Electron Framework: Launch with custom environment & binary path</td>
+                    <td class="test-ref">validation.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+                <tr>
+                    <td class="req-id">UC-VSCODE-01</td>
+                    <td>Extension triggers VS Code debugger UI correctly</td>
+                    <td class="test-ref">extension.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+
+                <!-- Quality & Robustness -->
+                <tr>
+                    <td colspan="4" class="category-header">3. Quality & Robustness</td>
+                </tr>
+                <tr>
+                    <td class="req-id">Q-VAL-01</td>
+                    <td>Strict argument validation for all 20+ operations</td>
+                    <td class="test-ref">validation.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+                <tr>
+                    <td class="req-id">Q-SEC-01</td>
+                    <td>Protection against REST path traversal & fuzzing</td>
+                    <td class="test-ref">security.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+                <tr>
+                    <td class="req-id">Q-PERF-01</td>
+                    <td>API Response Latency &lt; 200ms under load</td>
+                    <td class="test-ref">performance.test.ts</td>
+                    <td><span class="status-badge">PASSED</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <footer>
+        AI Debug Proxy v3.0 Alpha - Automated Quality Assurance Report
+    </footer>
+</body>
+</html>

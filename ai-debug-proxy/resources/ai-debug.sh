@@ -82,7 +82,7 @@ _ai_debug_op() {
     _ai_info "Executing: $operation"
 
     local response
-    response=$(curl -s -w "\n%{http_code}" -X POST "$AI_DEBUG_URL/api/debug" \
+    response=$(curl -s -w "\n%{http_code}" -X POST "$AI_DEBUG_URL/api/debug/execute_operation" \
         -H "Content-Type: application/json" \
         -d "{\"operation\":\"$operation\",\"params\":$params}" \
         --max-time "$AI_DEBUG_TIMEOUT" 2>/dev/null)
@@ -1024,7 +1024,7 @@ ai_batch() {
     _ai_info "Executing batch operations (parallel=$parallel)..."
     
     local response
-    response=$(curl -s -w "\n%{http_code}" -X POST "$AI_DEBUG_URL/api/debug/batch" \
+    response=$(curl -s -w "\n%{http_code}" -X POST "$AI_DEBUG_URL/api/debug/execute_batch" \
         -H "Content-Type: application/json" \
         -d "{\"operations\":$ops,\"parallel\":$parallel}" \
         --max-time "$AI_DEBUG_TIMEOUT" 2>/dev/null)

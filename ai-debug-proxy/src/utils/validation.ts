@@ -39,7 +39,7 @@
  * Includes
  ******************************************************************************/
 
-import { SourceLocation } from "../types";
+import { SourceLocation } from "../core/types";
 
 /******************************************************************************
  * Constants & Types
@@ -114,19 +114,49 @@ export function validateOperationArgs(
 ): ValidationResult {
   switch (operation) {
     // No params required
+    case "start":             // ADP-010: post-launch execution start
     case "continue":
+    case "pause":
     case "next":
+    case "step_over":
+    case "stepOver":
     case "step_in":
+    case "stepIn":
     case "step_out":
+    case "stepOut":
     case "restart":
     case "quit":
+    case "terminate":
     case "stack_trace":
     case "up":
+    case "frame_up":
     case "down":
+    case "frame_down":
     case "get_active_breakpoints":
     case "get_last_stop_info":
-    case "get_scope_preview":  // NEW: PROXY-004
+    case "get_scope_preview":
+    case "get_capabilities":
+    case "get_globals":
+    case "get_arguments":
+    case "list_all_locals":
+    case "list_threads":
       return ok(args || {});
+
+    // Attach to running process
+    case "attach": {
+      if (!args || !isNumber(args.processId)) {
+        return fail("'attach' requires 'processId' (number)");
+      }
+      return ok(args);
+    }
+
+    // Write raw memory
+    case "write_memory": {
+      if (!args || !isNumber(args.address)) {
+        return fail("'write_memory' requires 'address' (number)");
+      }
+      return ok(args);
+    }
 
     // Launch
     case "launch": {
@@ -227,8 +257,8 @@ export function validateOperationArgs(
 
     // Variable/evaluation
     case "get_stack_frame_variables":
+    case "get_variables":
     case "get_args":
-    case "list_all_locals":
       return ok(args || {});
 
     case "evaluate":
@@ -248,9 +278,6 @@ export function validateOperationArgs(
     }
 
     // --- Phase 3 Hardware & Threading ---
-    case "list_threads":
-      return ok(args || {});
-
     case "switch_thread": {
       if (!args || !isNumber(args.threadId)) {
         return fail("'switch_thread' requires 'threadId' (number)");

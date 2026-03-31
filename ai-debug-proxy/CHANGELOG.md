@@ -7,7 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.1.0] - 2026-03-18
+## [v3.0.0-b1] - 2026-03-30
+
+### Beta Release — Complete Operation Coverage + Release Framework
+
+### Added
+- **Suite K (6 E2E tests)**: `get_arguments`, `get_globals`, `pretty_print`, `execute_statement`, `get_scope_preview`, `get_capabilities`
+- **Suite L (3 E2E tests)**: `write_memory`, `terminate` via API, `attach` negative path
+- **Suite H expanded (H6-H12)**: 7 additional negative/error path tests
+- **Security tests (10 real tests)**: Path traversal (S1), info leak (S2), input fuzzing (S3), memory limits (S4), prototype pollution (S5)
+- **Performance benchmarks (10 real tests)**: Ping < 5ms p95, MI2 parser throughput, validation speed, heap stability
+- **Release criteria document**: `docs/release/release-criteria.md` — formal gate definitions for Beta and Stable
+- **Multi-thread debugging** (v3.a1): `list_threads`, `switch_thread`, per-thread `stack_trace`
+- **Playground multi-threaded binary**: `playground/main_mt.cpp` with 3 worker threads
+
+### Fixed
+- **validation.ts**: Added missing cases for `terminate`, `get_capabilities`, `attach`, `write_memory`, `frame_up`, `frame_down` — previously returned HTTP 400 "Unknown operation" despite being in router
+- **write_memory router**: Properly converts hex string → Buffer before passing to backend
+- **listThreads ID parsing**: `parseInt(id, 10)` + `isNaN` check instead of `|| 1` fallback
+- **switchThread**: Resets `currentFrameId = 0` after context switch
+- **MI2 pendingConsoleOutput**: `record.type === 'console'` (was `'~'`) — fixes list_source, get_source, whatis fallback
+
+### Test Coverage
+- E2E: 53 → 69 tests (A-L suites + UC7-UC9)
+- Unit: 183 → 207 tests
+- Operation coverage: 26/38 (68%) → 38/38 (100%)
+- Security: 3 stubs → 10 real tests
+- Performance: 4 stubs → 10 real benchmarks
+
+---
+
+## [v3.a0] - 2026-03-30
+
+### 🚀 Alpha Release - High-Performance Layered Architecture
+
+### Added
+- **6-Layer Architecture**: Complete restructuring into `core`, `protocol`, `backend`, `server`, `vscode`, and `agent` layers.
+- **REST API v3**: Unified `/api/debug` endpoint with operation-based dispatch system.
+- **Enhanced GDB/MI Protocol**: Robust parsing and `target-async` support for reliable execution control.
+- **Backend Manager**: Singleton-based lifecycle management for debug backends.
+- **Security Suite**: Path traversal protection, malformed request handling, and fuzzing benchmarks.
+- **Performance Benchmarks**: Response time monitoring (<200ms p95) and JS heap snapshot analysis.
+- **Comprehensive Documentation**: Full TSDoc coverage and 6 PlantUML architecture diagrams.
+- **AI-Specific Docs**: New `docs/ai/` directory for LLM integration guides and system prompts.
+
+### Fixed
+- **Buffer Overflow**: Fixed critical off-by-one error in `KeystoreService` (discovered during HSM testing).
+- **Memory Leaks**: Resolved raw pointer leaks in `HsmApiImpl`.
+- **Race Conditions**: Improved interrupt handling for asynchronous stops.
+
+---
+
 
 ### 🎉 Phase 1 & 2 Complete - AI-First Debugging Platform
 

@@ -5,8 +5,8 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -30,7 +30,1438 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// node_modules/@vscode/debugadapter/lib/messages.js
+var require_messages = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/messages.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.Event = exports2.Response = exports2.Message = void 0;
+    var Message = class {
+      constructor(type) {
+        this.seq = 0;
+        this.type = type;
+      }
+    };
+    exports2.Message = Message;
+    var Response = class extends Message {
+      constructor(request, message) {
+        super("response");
+        this.request_seq = request.seq;
+        this.command = request.command;
+        if (message) {
+          this.success = false;
+          this.message = message;
+        } else {
+          this.success = true;
+        }
+      }
+    };
+    exports2.Response = Response;
+    var Event = class extends Message {
+      constructor(event, body) {
+        super("event");
+        this.event = event;
+        if (body) {
+          this.body = body;
+        }
+      }
+    };
+    exports2.Event = Event;
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/protocol.js
+var require_protocol = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/protocol.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.ProtocolServer = void 0;
+    var ee = require("events");
+    var messages_1 = require_messages();
+    var Emitter = class {
+      get event() {
+        if (!this._event) {
+          this._event = (listener, thisArg) => {
+            this._listener = listener;
+            this._this = thisArg;
+            let result;
+            result = {
+              dispose: () => {
+                this._listener = void 0;
+                this._this = void 0;
+              }
+            };
+            return result;
+          };
+        }
+        return this._event;
+      }
+      fire(event) {
+        if (this._listener) {
+          try {
+            this._listener.call(this._this, event);
+          } catch (e) {
+          }
+        }
+      }
+      hasListener() {
+        return !!this._listener;
+      }
+      dispose() {
+        this._listener = void 0;
+        this._this = void 0;
+      }
+    };
+    var ProtocolServer = class _ProtocolServer extends ee.EventEmitter {
+      constructor() {
+        super();
+        this._sendMessage = new Emitter();
+        this._sequence = 1;
+        this._pendingRequests = /* @__PURE__ */ new Map();
+        this.onDidSendMessage = this._sendMessage.event;
+      }
+      // ---- implements vscode.Debugadapter interface ---------------------------
+      dispose() {
+      }
+      handleMessage(msg) {
+        if (msg.type === "request") {
+          this.dispatchRequest(msg);
+        } else if (msg.type === "response") {
+          const response = msg;
+          const clb = this._pendingRequests.get(response.request_seq);
+          if (clb) {
+            this._pendingRequests.delete(response.request_seq);
+            clb(response);
+          }
+        }
+      }
+      _isRunningInline() {
+        return this._sendMessage && this._sendMessage.hasListener();
+      }
+      //--------------------------------------------------------------------------
+      start(inStream, outStream) {
+        this._writableStream = outStream;
+        this._rawData = Buffer.alloc(0);
+        inStream.on("data", (data) => this._handleData(data));
+        inStream.on("close", () => {
+          this._emitEvent(new messages_1.Event("close"));
+        });
+        inStream.on("error", (error) => {
+          this._emitEvent(new messages_1.Event("error", "inStream error: " + (error && error.message)));
+        });
+        outStream.on("error", (error) => {
+          this._emitEvent(new messages_1.Event("error", "outStream error: " + (error && error.message)));
+        });
+        inStream.resume();
+      }
+      stop() {
+        if (this._writableStream) {
+          this._writableStream.end();
+        }
+      }
+      sendEvent(event) {
+        this._send("event", event);
+      }
+      sendResponse(response) {
+        if (response.seq > 0) {
+          console.error(`attempt to send more than one response for command ${response.command}`);
+        } else {
+          this._send("response", response);
+        }
+      }
+      sendRequest(command, args, timeout, cb) {
+        const request = {
+          command
+        };
+        if (args && Object.keys(args).length > 0) {
+          request.arguments = args;
+        }
+        this._send("request", request);
+        if (cb) {
+          this._pendingRequests.set(request.seq, cb);
+          const timer = setTimeout(() => {
+            clearTimeout(timer);
+            const clb = this._pendingRequests.get(request.seq);
+            if (clb) {
+              this._pendingRequests.delete(request.seq);
+              clb(new messages_1.Response(request, "timeout"));
+            }
+          }, timeout);
+        }
+      }
+      // ---- protected ----------------------------------------------------------
+      dispatchRequest(request) {
+      }
+      // ---- private ------------------------------------------------------------
+      _emitEvent(event) {
+        this.emit(event.event, event);
+      }
+      _send(typ, message) {
+        message.type = typ;
+        message.seq = this._sequence++;
+        if (this._writableStream) {
+          const json = JSON.stringify(message);
+          this._writableStream.write(`Content-Length: ${Buffer.byteLength(json, "utf8")}\r
+\r
+${json}`, "utf8");
+        }
+        this._sendMessage.fire(message);
+      }
+      _handleData(data) {
+        this._rawData = Buffer.concat([this._rawData, data]);
+        while (true) {
+          if (this._contentLength >= 0) {
+            if (this._rawData.length >= this._contentLength) {
+              const message = this._rawData.toString("utf8", 0, this._contentLength);
+              this._rawData = this._rawData.slice(this._contentLength);
+              this._contentLength = -1;
+              if (message.length > 0) {
+                try {
+                  let msg = JSON.parse(message);
+                  this.handleMessage(msg);
+                } catch (e) {
+                  this._emitEvent(new messages_1.Event("error", "Error handling data: " + (e && e.message)));
+                }
+              }
+              continue;
+            }
+          } else {
+            const idx = this._rawData.indexOf(_ProtocolServer.TWO_CRLF);
+            if (idx !== -1) {
+              const header = this._rawData.toString("utf8", 0, idx);
+              const lines = header.split("\r\n");
+              for (let i = 0; i < lines.length; i++) {
+                const pair = lines[i].split(/: +/);
+                if (pair[0] == "Content-Length") {
+                  this._contentLength = +pair[1];
+                }
+              }
+              this._rawData = this._rawData.slice(idx + _ProtocolServer.TWO_CRLF.length);
+              continue;
+            }
+          }
+          break;
+        }
+      }
+    };
+    exports2.ProtocolServer = ProtocolServer;
+    ProtocolServer.TWO_CRLF = "\r\n\r\n";
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/runDebugAdapter.js
+var require_runDebugAdapter = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/runDebugAdapter.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.runDebugAdapter = void 0;
+    var Net = require("net");
+    function runDebugAdapter(debugSession) {
+      let port = 0;
+      const args = process.argv.slice(2);
+      args.forEach(function(val, index, array) {
+        const portMatch = /^--server=(\d{4,5})$/.exec(val);
+        if (portMatch) {
+          port = parseInt(portMatch[1], 10);
+        }
+      });
+      if (port > 0) {
+        console.error(`waiting for debug protocol on port ${port}`);
+        Net.createServer((socket) => {
+          console.error(">> accepted connection from client");
+          socket.on("end", () => {
+            console.error(">> client connection closed\n");
+          });
+          const session = new debugSession(false, true);
+          session.setRunAsServer(true);
+          session.start(socket, socket);
+        }).listen(port);
+      } else {
+        const session = new debugSession(false);
+        process.on("SIGTERM", () => {
+          session.shutdown();
+        });
+        session.start(process.stdin, process.stdout);
+      }
+    }
+    exports2.runDebugAdapter = runDebugAdapter;
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/debugSession.js
+var require_debugSession = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/debugSession.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.DebugSession = exports2.ErrorDestination = exports2.MemoryEvent = exports2.InvalidatedEvent = exports2.ProgressEndEvent = exports2.ProgressUpdateEvent = exports2.ProgressStartEvent = exports2.CapabilitiesEvent = exports2.LoadedSourceEvent = exports2.ModuleEvent = exports2.BreakpointEvent = exports2.ThreadEvent = exports2.OutputEvent = exports2.ExitedEvent = exports2.TerminatedEvent = exports2.InitializedEvent = exports2.ContinuedEvent = exports2.StoppedEvent = exports2.CompletionItem = exports2.Module = exports2.Breakpoint = exports2.Variable = exports2.Thread = exports2.StackFrame = exports2.Scope = exports2.Source = void 0;
+    var protocol_1 = require_protocol();
+    var messages_1 = require_messages();
+    var runDebugAdapter_1 = require_runDebugAdapter();
+    var url_1 = require("url");
+    var Source2 = class {
+      constructor(name, path3, id = 0, origin, data) {
+        this.name = name;
+        this.path = path3;
+        this.sourceReference = id;
+        if (origin) {
+          this.origin = origin;
+        }
+        if (data) {
+          this.adapterData = data;
+        }
+      }
+    };
+    exports2.Source = Source2;
+    var Scope2 = class {
+      constructor(name, reference, expensive = false) {
+        this.name = name;
+        this.variablesReference = reference;
+        this.expensive = expensive;
+      }
+    };
+    exports2.Scope = Scope2;
+    var StackFrame2 = class {
+      constructor(i, nm, src, ln = 0, col = 0) {
+        this.id = i;
+        this.source = src;
+        this.line = ln;
+        this.column = col;
+        this.name = nm;
+      }
+    };
+    exports2.StackFrame = StackFrame2;
+    var Thread2 = class {
+      constructor(id, name) {
+        this.id = id;
+        if (name) {
+          this.name = name;
+        } else {
+          this.name = "Thread #" + id;
+        }
+      }
+    };
+    exports2.Thread = Thread2;
+    var Variable2 = class {
+      constructor(name, value, ref = 0, indexedVariables, namedVariables) {
+        this.name = name;
+        this.value = value;
+        this.variablesReference = ref;
+        if (typeof namedVariables === "number") {
+          this.namedVariables = namedVariables;
+        }
+        if (typeof indexedVariables === "number") {
+          this.indexedVariables = indexedVariables;
+        }
+      }
+    };
+    exports2.Variable = Variable2;
+    var Breakpoint2 = class {
+      constructor(verified, line, column, source) {
+        this.verified = verified;
+        const e = this;
+        if (typeof line === "number") {
+          e.line = line;
+        }
+        if (typeof column === "number") {
+          e.column = column;
+        }
+        if (source) {
+          e.source = source;
+        }
+      }
+      setId(id) {
+        this.id = id;
+      }
+    };
+    exports2.Breakpoint = Breakpoint2;
+    var Module = class {
+      constructor(id, name) {
+        this.id = id;
+        this.name = name;
+      }
+    };
+    exports2.Module = Module;
+    var CompletionItem = class {
+      constructor(label, start, length = 0) {
+        this.label = label;
+        this.start = start;
+        this.length = length;
+      }
+    };
+    exports2.CompletionItem = CompletionItem;
+    var StoppedEvent2 = class extends messages_1.Event {
+      constructor(reason, threadId, exceptionText) {
+        super("stopped");
+        this.body = {
+          reason
+        };
+        if (typeof threadId === "number") {
+          this.body.threadId = threadId;
+        }
+        if (typeof exceptionText === "string") {
+          this.body.text = exceptionText;
+        }
+      }
+    };
+    exports2.StoppedEvent = StoppedEvent2;
+    var ContinuedEvent2 = class extends messages_1.Event {
+      constructor(threadId, allThreadsContinued) {
+        super("continued");
+        this.body = {
+          threadId
+        };
+        if (typeof allThreadsContinued === "boolean") {
+          this.body.allThreadsContinued = allThreadsContinued;
+        }
+      }
+    };
+    exports2.ContinuedEvent = ContinuedEvent2;
+    var InitializedEvent2 = class extends messages_1.Event {
+      constructor() {
+        super("initialized");
+      }
+    };
+    exports2.InitializedEvent = InitializedEvent2;
+    var TerminatedEvent2 = class extends messages_1.Event {
+      constructor(restart) {
+        super("terminated");
+        if (typeof restart === "boolean" || restart) {
+          const e = this;
+          e.body = {
+            restart
+          };
+        }
+      }
+    };
+    exports2.TerminatedEvent = TerminatedEvent2;
+    var ExitedEvent = class extends messages_1.Event {
+      constructor(exitCode) {
+        super("exited");
+        this.body = {
+          exitCode
+        };
+      }
+    };
+    exports2.ExitedEvent = ExitedEvent;
+    var OutputEvent2 = class extends messages_1.Event {
+      constructor(output, category = "console", data) {
+        super("output");
+        this.body = {
+          category,
+          output
+        };
+        if (data !== void 0) {
+          this.body.data = data;
+        }
+      }
+    };
+    exports2.OutputEvent = OutputEvent2;
+    var ThreadEvent = class extends messages_1.Event {
+      constructor(reason, threadId) {
+        super("thread");
+        this.body = {
+          reason,
+          threadId
+        };
+      }
+    };
+    exports2.ThreadEvent = ThreadEvent;
+    var BreakpointEvent = class extends messages_1.Event {
+      constructor(reason, breakpoint) {
+        super("breakpoint");
+        this.body = {
+          reason,
+          breakpoint
+        };
+      }
+    };
+    exports2.BreakpointEvent = BreakpointEvent;
+    var ModuleEvent = class extends messages_1.Event {
+      constructor(reason, module3) {
+        super("module");
+        this.body = {
+          reason,
+          module: module3
+        };
+      }
+    };
+    exports2.ModuleEvent = ModuleEvent;
+    var LoadedSourceEvent = class extends messages_1.Event {
+      constructor(reason, source) {
+        super("loadedSource");
+        this.body = {
+          reason,
+          source
+        };
+      }
+    };
+    exports2.LoadedSourceEvent = LoadedSourceEvent;
+    var CapabilitiesEvent = class extends messages_1.Event {
+      constructor(capabilities) {
+        super("capabilities");
+        this.body = {
+          capabilities
+        };
+      }
+    };
+    exports2.CapabilitiesEvent = CapabilitiesEvent;
+    var ProgressStartEvent = class extends messages_1.Event {
+      constructor(progressId, title, message) {
+        super("progressStart");
+        this.body = {
+          progressId,
+          title
+        };
+        if (typeof message === "string") {
+          this.body.message = message;
+        }
+      }
+    };
+    exports2.ProgressStartEvent = ProgressStartEvent;
+    var ProgressUpdateEvent = class extends messages_1.Event {
+      constructor(progressId, message) {
+        super("progressUpdate");
+        this.body = {
+          progressId
+        };
+        if (typeof message === "string") {
+          this.body.message = message;
+        }
+      }
+    };
+    exports2.ProgressUpdateEvent = ProgressUpdateEvent;
+    var ProgressEndEvent = class extends messages_1.Event {
+      constructor(progressId, message) {
+        super("progressEnd");
+        this.body = {
+          progressId
+        };
+        if (typeof message === "string") {
+          this.body.message = message;
+        }
+      }
+    };
+    exports2.ProgressEndEvent = ProgressEndEvent;
+    var InvalidatedEvent = class extends messages_1.Event {
+      constructor(areas, threadId, stackFrameId) {
+        super("invalidated");
+        this.body = {};
+        if (areas) {
+          this.body.areas = areas;
+        }
+        if (threadId) {
+          this.body.threadId = threadId;
+        }
+        if (stackFrameId) {
+          this.body.stackFrameId = stackFrameId;
+        }
+      }
+    };
+    exports2.InvalidatedEvent = InvalidatedEvent;
+    var MemoryEvent = class extends messages_1.Event {
+      constructor(memoryReference, offset, count) {
+        super("memory");
+        this.body = { memoryReference, offset, count };
+      }
+    };
+    exports2.MemoryEvent = MemoryEvent;
+    var ErrorDestination;
+    (function(ErrorDestination2) {
+      ErrorDestination2[ErrorDestination2["User"] = 1] = "User";
+      ErrorDestination2[ErrorDestination2["Telemetry"] = 2] = "Telemetry";
+    })(ErrorDestination = exports2.ErrorDestination || (exports2.ErrorDestination = {}));
+    var DebugSession = class _DebugSession extends protocol_1.ProtocolServer {
+      constructor(obsolete_debuggerLinesAndColumnsStartAt1, obsolete_isServer) {
+        super();
+        const linesAndColumnsStartAt1 = typeof obsolete_debuggerLinesAndColumnsStartAt1 === "boolean" ? obsolete_debuggerLinesAndColumnsStartAt1 : false;
+        this._debuggerLinesStartAt1 = linesAndColumnsStartAt1;
+        this._debuggerColumnsStartAt1 = linesAndColumnsStartAt1;
+        this._debuggerPathsAreURIs = false;
+        this._clientLinesStartAt1 = true;
+        this._clientColumnsStartAt1 = true;
+        this._clientPathsAreURIs = false;
+        this._isServer = typeof obsolete_isServer === "boolean" ? obsolete_isServer : false;
+        this.on("close", () => {
+          this.shutdown();
+        });
+        this.on("error", (error) => {
+          this.shutdown();
+        });
+      }
+      setDebuggerPathFormat(format) {
+        this._debuggerPathsAreURIs = format !== "path";
+      }
+      setDebuggerLinesStartAt1(enable) {
+        this._debuggerLinesStartAt1 = enable;
+      }
+      setDebuggerColumnsStartAt1(enable) {
+        this._debuggerColumnsStartAt1 = enable;
+      }
+      setRunAsServer(enable) {
+        this._isServer = enable;
+      }
+      /**
+       * A virtual constructor...
+       */
+      static run(debugSession) {
+        (0, runDebugAdapter_1.runDebugAdapter)(debugSession);
+      }
+      shutdown() {
+        if (this._isServer || this._isRunningInline()) {
+        } else {
+          setTimeout(() => {
+            process.exit(0);
+          }, 100);
+        }
+      }
+      sendErrorResponse(response, codeOrMessage, format, variables, dest = ErrorDestination.User) {
+        let msg;
+        if (typeof codeOrMessage === "number") {
+          msg = {
+            id: codeOrMessage,
+            format
+          };
+          if (variables) {
+            msg.variables = variables;
+          }
+          if (dest & ErrorDestination.User) {
+            msg.showUser = true;
+          }
+          if (dest & ErrorDestination.Telemetry) {
+            msg.sendTelemetry = true;
+          }
+        } else {
+          msg = codeOrMessage;
+        }
+        response.success = false;
+        response.message = _DebugSession.formatPII(msg.format, true, msg.variables);
+        if (!response.body) {
+          response.body = {};
+        }
+        response.body.error = msg;
+        this.sendResponse(response);
+      }
+      runInTerminalRequest(args, timeout, cb) {
+        this.sendRequest("runInTerminal", args, timeout, cb);
+      }
+      dispatchRequest(request) {
+        const response = new messages_1.Response(request);
+        try {
+          if (request.command === "initialize") {
+            var args = request.arguments;
+            if (typeof args.linesStartAt1 === "boolean") {
+              this._clientLinesStartAt1 = args.linesStartAt1;
+            }
+            if (typeof args.columnsStartAt1 === "boolean") {
+              this._clientColumnsStartAt1 = args.columnsStartAt1;
+            }
+            if (args.pathFormat !== "path") {
+              this.sendErrorResponse(response, 2018, "debug adapter only supports native paths", null, ErrorDestination.Telemetry);
+            } else {
+              const initializeResponse = response;
+              initializeResponse.body = {};
+              this.initializeRequest(initializeResponse, args);
+            }
+          } else if (request.command === "launch") {
+            this.launchRequest(response, request.arguments, request);
+          } else if (request.command === "attach") {
+            this.attachRequest(response, request.arguments, request);
+          } else if (request.command === "disconnect") {
+            this.disconnectRequest(response, request.arguments, request);
+          } else if (request.command === "terminate") {
+            this.terminateRequest(response, request.arguments, request);
+          } else if (request.command === "restart") {
+            this.restartRequest(response, request.arguments, request);
+          } else if (request.command === "setBreakpoints") {
+            this.setBreakPointsRequest(response, request.arguments, request);
+          } else if (request.command === "setFunctionBreakpoints") {
+            this.setFunctionBreakPointsRequest(response, request.arguments, request);
+          } else if (request.command === "setExceptionBreakpoints") {
+            this.setExceptionBreakPointsRequest(response, request.arguments, request);
+          } else if (request.command === "configurationDone") {
+            this.configurationDoneRequest(response, request.arguments, request);
+          } else if (request.command === "continue") {
+            this.continueRequest(response, request.arguments, request);
+          } else if (request.command === "next") {
+            this.nextRequest(response, request.arguments, request);
+          } else if (request.command === "stepIn") {
+            this.stepInRequest(response, request.arguments, request);
+          } else if (request.command === "stepOut") {
+            this.stepOutRequest(response, request.arguments, request);
+          } else if (request.command === "stepBack") {
+            this.stepBackRequest(response, request.arguments, request);
+          } else if (request.command === "reverseContinue") {
+            this.reverseContinueRequest(response, request.arguments, request);
+          } else if (request.command === "restartFrame") {
+            this.restartFrameRequest(response, request.arguments, request);
+          } else if (request.command === "goto") {
+            this.gotoRequest(response, request.arguments, request);
+          } else if (request.command === "pause") {
+            this.pauseRequest(response, request.arguments, request);
+          } else if (request.command === "stackTrace") {
+            this.stackTraceRequest(response, request.arguments, request);
+          } else if (request.command === "scopes") {
+            this.scopesRequest(response, request.arguments, request);
+          } else if (request.command === "variables") {
+            this.variablesRequest(response, request.arguments, request);
+          } else if (request.command === "setVariable") {
+            this.setVariableRequest(response, request.arguments, request);
+          } else if (request.command === "setExpression") {
+            this.setExpressionRequest(response, request.arguments, request);
+          } else if (request.command === "source") {
+            this.sourceRequest(response, request.arguments, request);
+          } else if (request.command === "threads") {
+            this.threadsRequest(response, request);
+          } else if (request.command === "terminateThreads") {
+            this.terminateThreadsRequest(response, request.arguments, request);
+          } else if (request.command === "evaluate") {
+            this.evaluateRequest(response, request.arguments, request);
+          } else if (request.command === "stepInTargets") {
+            this.stepInTargetsRequest(response, request.arguments, request);
+          } else if (request.command === "gotoTargets") {
+            this.gotoTargetsRequest(response, request.arguments, request);
+          } else if (request.command === "completions") {
+            this.completionsRequest(response, request.arguments, request);
+          } else if (request.command === "exceptionInfo") {
+            this.exceptionInfoRequest(response, request.arguments, request);
+          } else if (request.command === "loadedSources") {
+            this.loadedSourcesRequest(response, request.arguments, request);
+          } else if (request.command === "dataBreakpointInfo") {
+            this.dataBreakpointInfoRequest(response, request.arguments, request);
+          } else if (request.command === "setDataBreakpoints") {
+            this.setDataBreakpointsRequest(response, request.arguments, request);
+          } else if (request.command === "readMemory") {
+            this.readMemoryRequest(response, request.arguments, request);
+          } else if (request.command === "writeMemory") {
+            this.writeMemoryRequest(response, request.arguments, request);
+          } else if (request.command === "disassemble") {
+            this.disassembleRequest(response, request.arguments, request);
+          } else if (request.command === "cancel") {
+            this.cancelRequest(response, request.arguments, request);
+          } else if (request.command === "breakpointLocations") {
+            this.breakpointLocationsRequest(response, request.arguments, request);
+          } else if (request.command === "setInstructionBreakpoints") {
+            this.setInstructionBreakpointsRequest(response, request.arguments, request);
+          } else {
+            this.customRequest(request.command, response, request.arguments, request);
+          }
+        } catch (e) {
+          this.sendErrorResponse(response, 1104, "{_stack}", { _exception: e.message, _stack: e.stack }, ErrorDestination.Telemetry);
+        }
+      }
+      initializeRequest(response, args) {
+        response.body.supportsConditionalBreakpoints = false;
+        response.body.supportsHitConditionalBreakpoints = false;
+        response.body.supportsFunctionBreakpoints = false;
+        response.body.supportsConfigurationDoneRequest = true;
+        response.body.supportsEvaluateForHovers = false;
+        response.body.supportsStepBack = false;
+        response.body.supportsSetVariable = false;
+        response.body.supportsRestartFrame = false;
+        response.body.supportsStepInTargetsRequest = false;
+        response.body.supportsGotoTargetsRequest = false;
+        response.body.supportsCompletionsRequest = false;
+        response.body.supportsRestartRequest = false;
+        response.body.supportsExceptionOptions = false;
+        response.body.supportsValueFormattingOptions = false;
+        response.body.supportsExceptionInfoRequest = false;
+        response.body.supportTerminateDebuggee = false;
+        response.body.supportsDelayedStackTraceLoading = false;
+        response.body.supportsLoadedSourcesRequest = false;
+        response.body.supportsLogPoints = false;
+        response.body.supportsTerminateThreadsRequest = false;
+        response.body.supportsSetExpression = false;
+        response.body.supportsTerminateRequest = false;
+        response.body.supportsDataBreakpoints = false;
+        response.body.supportsReadMemoryRequest = false;
+        response.body.supportsDisassembleRequest = false;
+        response.body.supportsCancelRequest = false;
+        response.body.supportsBreakpointLocationsRequest = false;
+        response.body.supportsClipboardContext = false;
+        response.body.supportsSteppingGranularity = false;
+        response.body.supportsInstructionBreakpoints = false;
+        response.body.supportsExceptionFilterOptions = false;
+        this.sendResponse(response);
+      }
+      disconnectRequest(response, args, request) {
+        this.sendResponse(response);
+        this.shutdown();
+      }
+      launchRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      attachRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      terminateRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      restartRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setBreakPointsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setFunctionBreakPointsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setExceptionBreakPointsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      configurationDoneRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      continueRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      nextRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      stepInRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      stepOutRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      stepBackRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      reverseContinueRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      restartFrameRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      gotoRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      pauseRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      sourceRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      threadsRequest(response, request) {
+        this.sendResponse(response);
+      }
+      terminateThreadsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      stackTraceRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      scopesRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      variablesRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setVariableRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setExpressionRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      evaluateRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      stepInTargetsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      gotoTargetsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      completionsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      exceptionInfoRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      loadedSourcesRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      dataBreakpointInfoRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setDataBreakpointsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      readMemoryRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      writeMemoryRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      disassembleRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      cancelRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      breakpointLocationsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      setInstructionBreakpointsRequest(response, args, request) {
+        this.sendResponse(response);
+      }
+      /**
+       * Override this hook to implement custom requests.
+       */
+      customRequest(command, response, args, request) {
+        this.sendErrorResponse(response, 1014, "unrecognized request", null, ErrorDestination.Telemetry);
+      }
+      //---- protected -------------------------------------------------------------------------------------------------
+      convertClientLineToDebugger(line) {
+        if (this._debuggerLinesStartAt1) {
+          return this._clientLinesStartAt1 ? line : line + 1;
+        }
+        return this._clientLinesStartAt1 ? line - 1 : line;
+      }
+      convertDebuggerLineToClient(line) {
+        if (this._debuggerLinesStartAt1) {
+          return this._clientLinesStartAt1 ? line : line - 1;
+        }
+        return this._clientLinesStartAt1 ? line + 1 : line;
+      }
+      convertClientColumnToDebugger(column) {
+        if (this._debuggerColumnsStartAt1) {
+          return this._clientColumnsStartAt1 ? column : column + 1;
+        }
+        return this._clientColumnsStartAt1 ? column - 1 : column;
+      }
+      convertDebuggerColumnToClient(column) {
+        if (this._debuggerColumnsStartAt1) {
+          return this._clientColumnsStartAt1 ? column : column - 1;
+        }
+        return this._clientColumnsStartAt1 ? column + 1 : column;
+      }
+      convertClientPathToDebugger(clientPath) {
+        if (this._clientPathsAreURIs !== this._debuggerPathsAreURIs) {
+          if (this._clientPathsAreURIs) {
+            return _DebugSession.uri2path(clientPath);
+          } else {
+            return _DebugSession.path2uri(clientPath);
+          }
+        }
+        return clientPath;
+      }
+      convertDebuggerPathToClient(debuggerPath) {
+        if (this._debuggerPathsAreURIs !== this._clientPathsAreURIs) {
+          if (this._debuggerPathsAreURIs) {
+            return _DebugSession.uri2path(debuggerPath);
+          } else {
+            return _DebugSession.path2uri(debuggerPath);
+          }
+        }
+        return debuggerPath;
+      }
+      //---- private -------------------------------------------------------------------------------
+      static path2uri(path3) {
+        if (process.platform === "win32") {
+          if (/^[A-Z]:/.test(path3)) {
+            path3 = path3[0].toLowerCase() + path3.substr(1);
+          }
+          path3 = path3.replace(/\\/g, "/");
+        }
+        path3 = encodeURI(path3);
+        let uri = new url_1.URL(`file:`);
+        uri.pathname = path3;
+        return uri.toString();
+      }
+      static uri2path(sourceUri) {
+        let uri = new url_1.URL(sourceUri);
+        let s = decodeURIComponent(uri.pathname);
+        if (process.platform === "win32") {
+          if (/^\/[a-zA-Z]:/.test(s)) {
+            s = s[1].toLowerCase() + s.substr(2);
+          }
+          s = s.replace(/\//g, "\\");
+        }
+        return s;
+      }
+      /*
+      * If argument starts with '_' it is OK to send its value to telemetry.
+      */
+      static formatPII(format, excludePII, args) {
+        return format.replace(_DebugSession._formatPIIRegexp, function(match, paramName) {
+          if (excludePII && paramName.length > 0 && paramName[0] !== "_") {
+            return match;
+          }
+          return args[paramName] && args.hasOwnProperty(paramName) ? args[paramName] : match;
+        });
+      }
+    };
+    exports2.DebugSession = DebugSession;
+    DebugSession._formatPIIRegexp = /{([^}]+)}/g;
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/internalLogger.js
+var require_internalLogger = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/internalLogger.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.InternalLogger = void 0;
+    var fs5 = require("fs");
+    var path3 = require("path");
+    var logger_1 = require_logger();
+    var InternalLogger = class {
+      constructor(logCallback, isServer) {
+        this.beforeExitCallback = () => this.dispose();
+        this._logCallback = logCallback;
+        this._logToConsole = isServer;
+        this._minLogLevel = logger_1.LogLevel.Warn;
+        this.disposeCallback = (signal, code) => {
+          this.dispose();
+          code = code || 2;
+          code += 128;
+          process.exit(code);
+        };
+      }
+      async setup(options) {
+        this._minLogLevel = options.consoleMinLogLevel;
+        this._prependTimestamp = options.prependTimestamp;
+        if (options.logFilePath) {
+          if (!path3.isAbsolute(options.logFilePath)) {
+            this.log(`logFilePath must be an absolute path: ${options.logFilePath}`, logger_1.LogLevel.Error);
+          } else {
+            const handleError = (err) => this.sendLog(`Error creating log file at path: ${options.logFilePath}. Error: ${err.toString()}
+`, logger_1.LogLevel.Error);
+            try {
+              await fs5.promises.mkdir(path3.dirname(options.logFilePath), { recursive: true });
+              this.log(`Verbose logs are written to:
+`, logger_1.LogLevel.Warn);
+              this.log(options.logFilePath + "\n", logger_1.LogLevel.Warn);
+              this._logFileStream = fs5.createWriteStream(options.logFilePath);
+              this.logDateTime();
+              this.setupShutdownListeners();
+              this._logFileStream.on("error", (err) => {
+                handleError(err);
+              });
+            } catch (err) {
+              handleError(err);
+            }
+          }
+        }
+      }
+      logDateTime() {
+        let d = /* @__PURE__ */ new Date();
+        let dateString = d.getUTCFullYear() + `-${d.getUTCMonth() + 1}-` + d.getUTCDate();
+        const timeAndDateStamp = dateString + ", " + getFormattedTimeString();
+        this.log(timeAndDateStamp + "\n", logger_1.LogLevel.Verbose, false);
+      }
+      setupShutdownListeners() {
+        process.on("beforeExit", this.beforeExitCallback);
+        process.on("SIGTERM", this.disposeCallback);
+        process.on("SIGINT", this.disposeCallback);
+      }
+      removeShutdownListeners() {
+        process.removeListener("beforeExit", this.beforeExitCallback);
+        process.removeListener("SIGTERM", this.disposeCallback);
+        process.removeListener("SIGINT", this.disposeCallback);
+      }
+      dispose() {
+        return new Promise((resolve) => {
+          this.removeShutdownListeners();
+          if (this._logFileStream) {
+            this._logFileStream.end(resolve);
+            this._logFileStream = null;
+          } else {
+            resolve();
+          }
+        });
+      }
+      log(msg, level, prependTimestamp = true) {
+        if (this._minLogLevel === logger_1.LogLevel.Stop) {
+          return;
+        }
+        if (level >= this._minLogLevel) {
+          this.sendLog(msg, level);
+        }
+        if (this._logToConsole) {
+          const logFn = level === logger_1.LogLevel.Error ? console.error : level === logger_1.LogLevel.Warn ? console.warn : null;
+          if (logFn) {
+            logFn((0, logger_1.trimLastNewline)(msg));
+          }
+        }
+        if (level === logger_1.LogLevel.Error) {
+          msg = `[${logger_1.LogLevel[level]}] ${msg}`;
+        }
+        if (this._prependTimestamp && prependTimestamp) {
+          msg = "[" + getFormattedTimeString() + "] " + msg;
+        }
+        if (this._logFileStream) {
+          this._logFileStream.write(msg);
+        }
+      }
+      sendLog(msg, level) {
+        if (msg.length > 1500) {
+          const endsInNewline = !!msg.match(/(\n|\r\n)$/);
+          msg = msg.substr(0, 1500) + "[...]";
+          if (endsInNewline) {
+            msg = msg + "\n";
+          }
+        }
+        if (this._logCallback) {
+          const event = new logger_1.LogOutputEvent(msg, level);
+          this._logCallback(event);
+        }
+      }
+    };
+    exports2.InternalLogger = InternalLogger;
+    function getFormattedTimeString() {
+      let d = /* @__PURE__ */ new Date();
+      let hourString = _padZeroes(2, String(d.getUTCHours()));
+      let minuteString = _padZeroes(2, String(d.getUTCMinutes()));
+      let secondString = _padZeroes(2, String(d.getUTCSeconds()));
+      let millisecondString = _padZeroes(3, String(d.getUTCMilliseconds()));
+      return hourString + ":" + minuteString + ":" + secondString + "." + millisecondString + " UTC";
+    }
+    function _padZeroes(minDesiredLength, numberToPad) {
+      if (numberToPad.length >= minDesiredLength) {
+        return numberToPad;
+      } else {
+        return String("0".repeat(minDesiredLength) + numberToPad).slice(-minDesiredLength);
+      }
+    }
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/logger.js
+var require_logger = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/logger.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.trimLastNewline = exports2.LogOutputEvent = exports2.logger = exports2.Logger = exports2.LogLevel = void 0;
+    var internalLogger_1 = require_internalLogger();
+    var debugSession_1 = require_debugSession();
+    var LogLevel;
+    (function(LogLevel2) {
+      LogLevel2[LogLevel2["Verbose"] = 0] = "Verbose";
+      LogLevel2[LogLevel2["Log"] = 1] = "Log";
+      LogLevel2[LogLevel2["Warn"] = 2] = "Warn";
+      LogLevel2[LogLevel2["Error"] = 3] = "Error";
+      LogLevel2[LogLevel2["Stop"] = 4] = "Stop";
+    })(LogLevel = exports2.LogLevel || (exports2.LogLevel = {}));
+    var Logger2 = class {
+      constructor() {
+        this._pendingLogQ = [];
+      }
+      log(msg, level = LogLevel.Log) {
+        msg = msg + "\n";
+        this._write(msg, level);
+      }
+      verbose(msg) {
+        this.log(msg, LogLevel.Verbose);
+      }
+      warn(msg) {
+        this.log(msg, LogLevel.Warn);
+      }
+      error(msg) {
+        this.log(msg, LogLevel.Error);
+      }
+      dispose() {
+        if (this._currentLogger) {
+          const disposeP = this._currentLogger.dispose();
+          this._currentLogger = null;
+          return disposeP;
+        } else {
+          return Promise.resolve();
+        }
+      }
+      /**
+       * `log` adds a newline, `write` doesn't
+       */
+      _write(msg, level = LogLevel.Log) {
+        msg = msg + "";
+        if (this._pendingLogQ) {
+          this._pendingLogQ.push({ msg, level });
+        } else if (this._currentLogger) {
+          this._currentLogger.log(msg, level);
+        }
+      }
+      /**
+       * Set the logger's minimum level to log in the console, and whether to log to the file. Log messages are queued before this is
+       * called the first time, because minLogLevel defaults to Warn.
+       */
+      setup(consoleMinLogLevel, _logFilePath, prependTimestamp = true) {
+        const logFilePath = typeof _logFilePath === "string" ? _logFilePath : _logFilePath && this._logFilePathFromInit;
+        if (this._currentLogger) {
+          const options = {
+            consoleMinLogLevel,
+            logFilePath,
+            prependTimestamp
+          };
+          this._currentLogger.setup(options).then(() => {
+            if (this._pendingLogQ) {
+              const logQ = this._pendingLogQ;
+              this._pendingLogQ = null;
+              logQ.forEach((item) => this._write(item.msg, item.level));
+            }
+          });
+        }
+      }
+      init(logCallback, logFilePath, logToConsole) {
+        this._pendingLogQ = this._pendingLogQ || [];
+        this._currentLogger = new internalLogger_1.InternalLogger(logCallback, logToConsole);
+        this._logFilePathFromInit = logFilePath;
+      }
+    };
+    exports2.Logger = Logger2;
+    exports2.logger = new Logger2();
+    var LogOutputEvent = class extends debugSession_1.OutputEvent {
+      constructor(msg, level) {
+        const category = level === LogLevel.Error ? "stderr" : level === LogLevel.Warn ? "console" : "stdout";
+        super(msg, category);
+      }
+    };
+    exports2.LogOutputEvent = LogOutputEvent;
+    function trimLastNewline(str) {
+      return str.replace(/(\n|\r\n)$/, "");
+    }
+    exports2.trimLastNewline = trimLastNewline;
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/loggingDebugSession.js
+var require_loggingDebugSession = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/loggingDebugSession.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.LoggingDebugSession = void 0;
+    var Logger2 = require_logger();
+    var logger2 = Logger2.logger;
+    var debugSession_1 = require_debugSession();
+    var LoggingDebugSession2 = class extends debugSession_1.DebugSession {
+      constructor(obsolete_logFilePath, obsolete_debuggerLinesAndColumnsStartAt1, obsolete_isServer) {
+        super(obsolete_debuggerLinesAndColumnsStartAt1, obsolete_isServer);
+        this.obsolete_logFilePath = obsolete_logFilePath;
+        this.on("error", (event) => {
+          logger2.error(event.body);
+        });
+      }
+      start(inStream, outStream) {
+        super.start(inStream, outStream);
+        logger2.init((e) => this.sendEvent(e), this.obsolete_logFilePath, this._isServer);
+      }
+      /**
+       * Overload sendEvent to log
+       */
+      sendEvent(event) {
+        if (!(event instanceof Logger2.LogOutputEvent)) {
+          let objectToLog = event;
+          if (event instanceof debugSession_1.OutputEvent && event.body && event.body.data && event.body.data.doNotLogOutput) {
+            delete event.body.data.doNotLogOutput;
+            objectToLog = { ...event };
+            objectToLog.body = { ...event.body, output: "<output not logged>" };
+          }
+          logger2.verbose(`To client: ${JSON.stringify(objectToLog)}`);
+        }
+        super.sendEvent(event);
+      }
+      /**
+       * Overload sendRequest to log
+       */
+      sendRequest(command, args, timeout, cb) {
+        logger2.verbose(`To client: ${JSON.stringify(command)}(${JSON.stringify(args)}), timeout: ${timeout}`);
+        super.sendRequest(command, args, timeout, cb);
+      }
+      /**
+       * Overload sendResponse to log
+       */
+      sendResponse(response) {
+        logger2.verbose(`To client: ${JSON.stringify(response)}`);
+        super.sendResponse(response);
+      }
+      dispatchRequest(request) {
+        logger2.verbose(`From client: ${request.command}(${JSON.stringify(request.arguments)})`);
+        super.dispatchRequest(request);
+      }
+    };
+    exports2.LoggingDebugSession = LoggingDebugSession2;
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/handles.js
+var require_handles = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/handles.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.Handles = void 0;
+    var Handles2 = class {
+      constructor(startHandle) {
+        this.START_HANDLE = 1e3;
+        this._handleMap = /* @__PURE__ */ new Map();
+        this._nextHandle = typeof startHandle === "number" ? startHandle : this.START_HANDLE;
+      }
+      reset() {
+        this._nextHandle = this.START_HANDLE;
+        this._handleMap = /* @__PURE__ */ new Map();
+      }
+      create(value) {
+        var handle = this._nextHandle++;
+        this._handleMap.set(handle, value);
+        return handle;
+      }
+      get(handle, dflt) {
+        return this._handleMap.get(handle) || dflt;
+      }
+    };
+    exports2.Handles = Handles2;
+  }
+});
+
+// node_modules/@vscode/debugadapter/lib/main.js
+var require_main = __commonJS({
+  "node_modules/@vscode/debugadapter/lib/main.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.Handles = exports2.Response = exports2.Event = exports2.ErrorDestination = exports2.CompletionItem = exports2.Module = exports2.Source = exports2.Breakpoint = exports2.Variable = exports2.Scope = exports2.StackFrame = exports2.Thread = exports2.MemoryEvent = exports2.InvalidatedEvent = exports2.ProgressEndEvent = exports2.ProgressUpdateEvent = exports2.ProgressStartEvent = exports2.CapabilitiesEvent = exports2.LoadedSourceEvent = exports2.ModuleEvent = exports2.BreakpointEvent = exports2.ThreadEvent = exports2.OutputEvent = exports2.ContinuedEvent = exports2.StoppedEvent = exports2.ExitedEvent = exports2.TerminatedEvent = exports2.InitializedEvent = exports2.logger = exports2.Logger = exports2.LoggingDebugSession = exports2.DebugSession = void 0;
+    var debugSession_1 = require_debugSession();
+    Object.defineProperty(exports2, "DebugSession", { enumerable: true, get: function() {
+      return debugSession_1.DebugSession;
+    } });
+    Object.defineProperty(exports2, "InitializedEvent", { enumerable: true, get: function() {
+      return debugSession_1.InitializedEvent;
+    } });
+    Object.defineProperty(exports2, "TerminatedEvent", { enumerable: true, get: function() {
+      return debugSession_1.TerminatedEvent;
+    } });
+    Object.defineProperty(exports2, "ExitedEvent", { enumerable: true, get: function() {
+      return debugSession_1.ExitedEvent;
+    } });
+    Object.defineProperty(exports2, "StoppedEvent", { enumerable: true, get: function() {
+      return debugSession_1.StoppedEvent;
+    } });
+    Object.defineProperty(exports2, "ContinuedEvent", { enumerable: true, get: function() {
+      return debugSession_1.ContinuedEvent;
+    } });
+    Object.defineProperty(exports2, "OutputEvent", { enumerable: true, get: function() {
+      return debugSession_1.OutputEvent;
+    } });
+    Object.defineProperty(exports2, "ThreadEvent", { enumerable: true, get: function() {
+      return debugSession_1.ThreadEvent;
+    } });
+    Object.defineProperty(exports2, "BreakpointEvent", { enumerable: true, get: function() {
+      return debugSession_1.BreakpointEvent;
+    } });
+    Object.defineProperty(exports2, "ModuleEvent", { enumerable: true, get: function() {
+      return debugSession_1.ModuleEvent;
+    } });
+    Object.defineProperty(exports2, "LoadedSourceEvent", { enumerable: true, get: function() {
+      return debugSession_1.LoadedSourceEvent;
+    } });
+    Object.defineProperty(exports2, "CapabilitiesEvent", { enumerable: true, get: function() {
+      return debugSession_1.CapabilitiesEvent;
+    } });
+    Object.defineProperty(exports2, "ProgressStartEvent", { enumerable: true, get: function() {
+      return debugSession_1.ProgressStartEvent;
+    } });
+    Object.defineProperty(exports2, "ProgressUpdateEvent", { enumerable: true, get: function() {
+      return debugSession_1.ProgressUpdateEvent;
+    } });
+    Object.defineProperty(exports2, "ProgressEndEvent", { enumerable: true, get: function() {
+      return debugSession_1.ProgressEndEvent;
+    } });
+    Object.defineProperty(exports2, "InvalidatedEvent", { enumerable: true, get: function() {
+      return debugSession_1.InvalidatedEvent;
+    } });
+    Object.defineProperty(exports2, "MemoryEvent", { enumerable: true, get: function() {
+      return debugSession_1.MemoryEvent;
+    } });
+    Object.defineProperty(exports2, "Thread", { enumerable: true, get: function() {
+      return debugSession_1.Thread;
+    } });
+    Object.defineProperty(exports2, "StackFrame", { enumerable: true, get: function() {
+      return debugSession_1.StackFrame;
+    } });
+    Object.defineProperty(exports2, "Scope", { enumerable: true, get: function() {
+      return debugSession_1.Scope;
+    } });
+    Object.defineProperty(exports2, "Variable", { enumerable: true, get: function() {
+      return debugSession_1.Variable;
+    } });
+    Object.defineProperty(exports2, "Breakpoint", { enumerable: true, get: function() {
+      return debugSession_1.Breakpoint;
+    } });
+    Object.defineProperty(exports2, "Source", { enumerable: true, get: function() {
+      return debugSession_1.Source;
+    } });
+    Object.defineProperty(exports2, "Module", { enumerable: true, get: function() {
+      return debugSession_1.Module;
+    } });
+    Object.defineProperty(exports2, "CompletionItem", { enumerable: true, get: function() {
+      return debugSession_1.CompletionItem;
+    } });
+    Object.defineProperty(exports2, "ErrorDestination", { enumerable: true, get: function() {
+      return debugSession_1.ErrorDestination;
+    } });
+    var loggingDebugSession_1 = require_loggingDebugSession();
+    Object.defineProperty(exports2, "LoggingDebugSession", { enumerable: true, get: function() {
+      return loggingDebugSession_1.LoggingDebugSession;
+    } });
+    var Logger2 = require_logger();
+    exports2.Logger = Logger2;
+    var messages_1 = require_messages();
+    Object.defineProperty(exports2, "Event", { enumerable: true, get: function() {
+      return messages_1.Event;
+    } });
+    Object.defineProperty(exports2, "Response", { enumerable: true, get: function() {
+      return messages_1.Response;
+    } });
+    var handles_1 = require_handles();
+    Object.defineProperty(exports2, "Handles", { enumerable: true, get: function() {
+      return handles_1.Handles;
+    } });
+    var logger2 = Logger2.logger;
+    exports2.logger = logger2;
+  }
+});
+
+// src/vscode/extension.ts
+var extension_exports = {};
+__export(extension_exports, {
+  activate: () => activate,
+  deactivate: () => deactivate
+});
+module.exports = __toCommonJS(extension_exports);
+var vscode2 = __toESM(require("vscode"));
+var path2 = __toESM(require("path"));
+var os = __toESM(require("os"));
+var fs4 = __toESM(require("fs"));
+
+// src/server/HttpServer.ts
+var http = __toESM(require("http"));
+
 // src/utils/logging.ts
+var vscode = __toESM(require("vscode"));
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+var LOG_LEVELS = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3
+};
+var currentLevel = "info";
+var LOG_FILE = path.join(__dirname, "..", "proxy.log");
+var outputChannel = typeof vscode.window?.createOutputChannel === "function" ? vscode.window.createOutputChannel("AI Debug Proxy") : {
+  append: () => {
+  },
+  appendLine: () => {
+  },
+  clear: () => {
+  },
+  dispose: () => {
+  },
+  hide: () => {
+  },
+  name: "MockOutputChannel",
+  replace: () => {
+  },
+  show: () => {
+  }
+};
 function setLogLevel(level) {
   currentLevel = level;
 }
@@ -46,17 +1477,25 @@ function log(level, component, message, data) {
   const tag = level.toUpperCase().padEnd(5);
   const line = `[${formatTimestamp()}] ${tag} [${component}] ${message}`;
   outputChannel.appendLine(line);
+  console.log(line);
   let extra = "";
   if (data !== void 0) {
     extra = `
   \u2514\u2500 ${stringifySafe(data)}`;
     outputChannel.appendLine(`  \u2514\u2500 ${stringifySafe(data)}`);
+    console.log(`  \u2514\u2500 ${stringifySafe(data)}`);
   }
   try {
     fs.appendFileSync(LOG_FILE, line + extra + "\n");
   } catch (e) {
   }
 }
+var logger = {
+  debug: (component, msg, data) => log("debug", component, msg, data),
+  info: (component, msg, data) => log("info", component, msg, data),
+  warn: (component, msg, data) => log("warn", component, msg, data),
+  error: (component, msg, data) => log("error", component, msg, data)
+};
 function stringifySafe(obj, indent = 2) {
   const cache = /* @__PURE__ */ new Set();
   try {
@@ -78,4084 +1517,1241 @@ function stringifySafe(obj, indent = 2) {
     cache.clear();
   }
 }
-var vscode, fs, path, LOG_LEVELS, currentLevel, LOG_FILE, outputChannel, logger;
-var init_logging = __esm({
-  "src/utils/logging.ts"() {
-    "use strict";
-    vscode = __toESM(require("vscode"));
-    fs = __toESM(require("fs"));
-    path = __toESM(require("path"));
-    LOG_LEVELS = {
-      debug: 0,
-      info: 1,
-      warn: 2,
-      error: 3
-    };
-    currentLevel = "info";
-    LOG_FILE = path.join(__dirname, "..", "proxy.log");
-    outputChannel = typeof vscode.window?.createOutputChannel === "function" ? vscode.window.createOutputChannel("AI Debug Proxy") : {
-      append: () => {
-      },
-      appendLine: () => {
-      },
-      clear: () => {
-      },
-      dispose: () => {
-      },
-      hide: () => {
-      },
-      name: "MockOutputChannel",
-      replace: () => {
-      },
-      show: () => {
-      }
-    };
-    logger = {
-      debug: (component, msg, data) => log("debug", component, msg, data),
-      info: (component, msg, data) => log("info", component, msg, data),
-      warn: (component, msg, data) => log("warn", component, msg, data),
-      error: (component, msg, data) => log("error", component, msg, data)
-    };
-  }
-});
 
-// src/utils/errors.ts
-var DebugError, OperationError;
-var init_errors = __esm({
-  "src/utils/errors.ts"() {
-    "use strict";
-    DebugError = class _DebugError extends Error {
-      /**
-       * @brief Create a DebugError.
-       *
-       * @param [in] code       Machine-readable error code.
-       * @param [in] message    Human-readable error message.
-       * @param [in] suggestion Optional suggestion for resolving the error.
-       * @param [in] details    Optional additional context/details.
-       */
-      constructor(code, message, suggestion, details) {
-        super(message);
-        this.code = code;
-        this.suggestion = suggestion;
-        this.details = details;
-        this.name = "DebugError";
-        Object.setPrototypeOf(this, _DebugError.prototype);
-        Error.captureStackTrace(this, this.constructor);
-      }
-      /**
-       * @brief Convert error to JSON for API response.
-       *
-       * @return JSON-serializable error object.
-       */
-      toJSON() {
-        return {
-          code: this.code,
-          message: this.message,
-          suggestion: this.suggestion,
-          details: this.details
-        };
-      }
-      /**
-       * @brief Create a BINARY_NOT_FOUND error.
-       *
-       * @param [in] path Path to the missing binary.
-       * @return DebugError instance.
-       */
-      static binaryNotFound(path7) {
-        return new _DebugError(
-          "BINARY_NOT_FOUND" /* BINARY_NOT_FOUND */,
-          `Binary not found: ${path7}`,
-          `Have you built the project? Check your build configuration and output path.`,
-          { path: path7, exists: false }
-        );
-      }
-      /**
-       * @brief Create a GDB_NOT_FOUND error.
-       *
-       * @param [in] path Path to the missing GDB executable.
-       * @return DebugError instance.
-       */
-      static gdbNotFound(path7) {
-        return new _DebugError(
-          "GDB_NOT_FOUND" /* GDB_NOT_FOUND */,
-          `GDB debugger not found: ${path7}`,
-          `Install GDB: sudo apt-get install gdb (or configure miDebuggerPath correctly)`,
-          { path: path7, exists: false }
-        );
-      }
-      /**
-       * @brief Create a WORKSPACE_NOT_FOUND error.
-       *
-       * @param [in] path Path to the missing workspace.
-       * @return DebugError instance.
-       */
-      static workspaceNotFound(path7) {
-        return new _DebugError(
-          "WORKSPACE_NOT_FOUND" /* WORKSPACE_NOT_FOUND */,
-          `Workspace not found: ${path7}`,
-          `Ensure the workspace path is correct and the folder is open in VS Code.`,
-          { path: path7, exists: false }
-        );
-      }
-      /**
-       * @brief Create a MISSING_PARAMETER error.
-       *
-       * @param [in] paramName Name of the missing parameter.
-       * @return DebugError instance.
-       */
-      static missingParameter(paramName) {
-        return new _DebugError(
-          "MISSING_PARAMETER" /* MISSING_PARAMETER */,
-          `Missing required parameter: ${paramName}`,
-          `Add '${paramName}' field to params object.`,
-          { missingField: paramName }
-        );
-      }
-      /**
-       * @brief Create an INVALID_PARAMETER error.
-       *
-       * @param [in] paramName Name of the invalid parameter.
-       * @param [in] reason    Reason why the parameter is invalid.
-       * @return DebugError instance.
-       */
-      static invalidParameter(paramName, reason) {
-        return new _DebugError(
-          "INVALID_PARAMETER" /* INVALID_PARAMETER */,
-          `Invalid parameter '${paramName}': ${reason}`,
-          `Check the parameter value and try again.`,
-          { paramName, reason }
-        );
-      }
-      /**
-       * @brief Create an INTERNAL_ERROR.
-       *
-       * @param [in] message Error message.
-       * @param [in] details Optional additional details.
-       * @return DebugError instance.
-       */
-      static internal(message, details) {
-        return new _DebugError(
-          "INTERNAL_ERROR" /* INTERNAL_ERROR */,
-          `Internal error: ${message}`,
-          `This is likely a bug in the extension. Please check the logs.`,
-          details
-        );
-      }
-    };
-    OperationError = class _OperationError extends Error {
-      operation;
-      cause;
-      constructor(operation, message, cause) {
-        super(message);
-        this.operation = operation;
-        this.cause = cause;
-        this.name = "OperationError";
-        Object.setPrototypeOf(this, _OperationError.prototype);
-        Error.captureStackTrace(this, this.constructor);
-      }
-    };
-  }
-});
+// src/backend/GDBBackend.ts
+var import_events2 = require("events");
+var fs2 = __toESM(require("fs"));
 
-// src/debug/events.ts
-var events_exports = {};
-__export(events_exports, {
-  clearCurrentTopFrameId: () => clearCurrentTopFrameId,
-  clearLastStopEvent: () => clearLastStopEvent,
-  getCurrentFrameId: () => getCurrentFrameId,
-  getCurrentThreadId: () => getCurrentThreadId,
-  getCurrentTopFrameId: () => getCurrentTopFrameId,
-  getLastLocation: () => getLastLocation,
-  getLastStopEventBody: () => getLastStopEventBody,
-  getLastStopSessionId: () => getLastStopSessionId,
-  invalidateState: () => invalidateState,
-  isStateValid: () => isStateValid,
-  onDapStopEvent: () => onDapStopEvent,
-  registerDebugEventListeners: () => registerDebugEventListeners,
-  resolveWaitPromise: () => resolveWaitPromise,
-  setCurrentFrameId: () => setCurrentFrameId,
-  setCurrentThreadId: () => setCurrentThreadId,
-  updateCurrentTopFrameId: () => updateCurrentTopFrameId,
-  waitForStopEvent: () => waitForStopEvent
-});
-function resolveWaitPromise(stopped = true, reason) {
-  const resolvers = _stopResolvers.splice(0);
-  for (const resolve of resolvers)
-    resolve({ stopped, reason });
-}
-function getCurrentTopFrameId(sessionId) {
-  if (sessionId)
-    return _sessionState.get(sessionId)?.topFrameId;
-  const active = vscode2.debug.activeDebugSession;
-  return active ? _sessionState.get(active.id)?.topFrameId : void 0;
-}
-function updateCurrentTopFrameId(frameId, sessionId) {
-  const id = sessionId ?? vscode2.debug.activeDebugSession?.id;
-  if (!id)
-    return;
-  const state = _sessionState.get(id) ?? {};
-  state.topFrameId = frameId;
-  state.currentFrameId = frameId;
-  state.stateValid = true;
-  _sessionState.set(id, state);
-}
-function clearCurrentTopFrameId(sessionId) {
-  const id = sessionId ?? vscode2.debug.activeDebugSession?.id;
-  if (id) {
-    const state = _sessionState.get(id);
-    if (state)
-      state.topFrameId = void 0;
+// src/protocol/mi2/MI2.ts
+var import_child_process = require("child_process");
+var import_events = require("events");
+
+// src/protocol/mi2/mi_parse.ts
+var octalMatch = /^[0-7]{3}/;
+var escapeMap = {
+  "\\": "\\",
+  '"': '"',
+  "'": "'",
+  "n": "\n",
+  "r": "\r",
+  "t": "	",
+  "b": "\b",
+  "f": "\f",
+  "v": "\v",
+  "0": "\0"
+};
+function parseString(str) {
+  const ret = Buffer.alloc(str.length * 4);
+  let bufIndex = 0;
+  if (str[0] !== '"' || str[str.length - 1] !== '"') {
+    throw new Error("Not a valid string");
   }
-}
-function getCurrentThreadId(sessionId) {
-  if (sessionId)
-    return _sessionState.get(sessionId)?.currentThreadId;
-  const active = vscode2.debug.activeDebugSession;
-  return active ? _sessionState.get(active.id)?.currentThreadId : void 0;
-}
-function setCurrentThreadId(threadId, sessionId) {
-  const id = sessionId ?? vscode2.debug.activeDebugSession?.id;
-  if (!id)
-    return;
-  const state = _sessionState.get(id) ?? {};
-  state.currentThreadId = threadId;
-  state.stateValid = true;
-  _sessionState.set(id, state);
-}
-function getCurrentFrameId(sessionId) {
-  if (sessionId)
-    return _sessionState.get(sessionId)?.currentFrameId;
-  const active = vscode2.debug.activeDebugSession;
-  return active ? _sessionState.get(active.id)?.currentFrameId : void 0;
-}
-function setCurrentFrameId(frameId, sessionId) {
-  const id = sessionId ?? vscode2.debug.activeDebugSession?.id;
-  if (!id)
-    return;
-  const state = _sessionState.get(id) ?? {};
-  state.currentFrameId = frameId;
-  state.stateValid = true;
-  _sessionState.set(id, state);
-}
-function getLastLocation(sessionId) {
-  if (sessionId)
-    return _sessionState.get(sessionId)?.lastLocation;
-  const active = vscode2.debug.activeDebugSession;
-  return active ? _sessionState.get(active.id)?.lastLocation : void 0;
-}
-function isStateValid(sessionId) {
-  if (sessionId)
-    return _sessionState.get(sessionId)?.stateValid ?? false;
-  const active = vscode2.debug.activeDebugSession;
-  return active ? _sessionState.get(active.id)?.stateValid ?? false : false;
-}
-function invalidateState(sessionId) {
-  const id = sessionId ?? vscode2.debug.activeDebugSession?.id;
-  if (!id)
-    return;
-  const state = _sessionState.get(id) ?? {};
-  state.stateValid = false;
-  _sessionState.set(id, state);
-}
-function getLastStopEventBody(sessionId) {
-  if (sessionId)
-    return _sessionState.get(sessionId)?.lastStopBody;
-  const active = vscode2.debug.activeDebugSession;
-  return active ? _sessionState.get(active.id)?.lastStopBody : void 0;
-}
-function getLastStopSessionId() {
-  let last;
-  for (const [id, state] of _sessionState) {
-    if (state.lastStopBody !== void 0)
-      last = id;
-  }
-  return last;
-}
-function clearLastStopEvent(sessionId) {
-  if (sessionId) {
-    const state = _sessionState.get(sessionId);
-    if (state)
-      state.lastStopBody = void 0;
-  } else {
-    for (const state of _sessionState.values()) {
-      state.lastStopBody = void 0;
-    }
-  }
-}
-function waitForStopEvent(timeoutMs) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const idx = _stopResolvers.indexOf(resolver);
-      if (idx !== -1)
-        _stopResolvers.splice(idx, 1);
-      const lastStop = getLastStopEventBody();
-      if (lastStop) {
-        logger.info(LOG, `Program already stopped: reason=${lastStop.reason}`);
-        resolve({ stopped: true, reason: lastStop.reason });
+  str = str.slice(1, -1);
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === "\\") {
+      if (++i >= str.length) {
+        throw new Error("Not a valid escape sequence");
+      }
+      const sub = escapeMap[str[i]];
+      if (sub) {
+        bufIndex += ret.write(sub, bufIndex);
       } else {
-        logger.warn(LOG, `Stop event timeout after ${timeoutMs}ms`);
-        resolve({ stopped: false, reason: "timeout" });
-      }
-    }, timeoutMs);
-    const resolver = (result) => {
-      clearTimeout(timer);
-      resolve(result);
-    };
-    _stopResolvers.push(resolver);
-  });
-}
-function onDapStopEvent(callback) {
-  stopEventCallbacks.push(callback);
-}
-function registerDebugEventListeners(context) {
-  context.subscriptions.push(
-    vscode2.debug.onDidStartDebugSession((session) => {
-      logger.info(LOG, `Session started: ${session.name} [${session.id}]`);
-      _sessionState.set(session.id, {});
-    })
-  );
-  context.subscriptions.push(
-    vscode2.debug.onDidTerminateDebugSession((session) => {
-      logger.info(LOG, `Session terminated: ${session.name} [${session.id}]`);
-      resolveWaitPromise(false, "terminated");
-      _sessionState.delete(session.id);
-      clearLastSession();
-    })
-  );
-  context.subscriptions.push(
-    vscode2.debug.onDidReceiveDebugSessionCustomEvent((e) => {
-      logger.debug(LOG, `Custom event: ${e.event}`);
-    })
-  );
-  context.subscriptions.push(
-    vscode2.debug.registerDebugAdapterTrackerFactory(
-      "*",
-      new DapStopTrackerFactory()
-    )
-  );
-  context.subscriptions.push(
-    vscode2.debug.onDidChangeBreakpoints((e) => {
-      logger.debug(
-        LOG,
-        `Breakpoints changed: +${e.added.length} -${e.removed.length} ~${e.changed.length}`
-      );
-    })
-  );
-}
-var vscode2, LOG, _sessionState, _stopResolvers, stopEventCallbacks, DapStopTracker, DapStopTrackerFactory;
-var init_events = __esm({
-  "src/debug/events.ts"() {
-    "use strict";
-    vscode2 = __toESM(require("vscode"));
-    init_logging();
-    init_session();
-    LOG = "Events";
-    _sessionState = /* @__PURE__ */ new Map();
-    _stopResolvers = [];
-    stopEventCallbacks = [];
-    DapStopTracker = class {
-      constructor(session) {
-        this.session = session;
-      }
-      onDidSendMessage(message) {
-        if (message.type === "event") {
-          if (message.event === "stopped") {
-            const body = message.body || {};
-            logger.debug(
-              LOG,
-              `Stopped event (Tracker): reason=${body.reason}`,
-              body
-            );
-            const state = _sessionState.get(this.session.id) ?? {};
-            state.lastStopBody = body;
-            if (body.threadId !== void 0) {
-              state.currentThreadId = body.threadId;
-            }
-            state.currentFrameId = 0;
-            state.stateValid = true;
-            _sessionState.set(this.session.id, state);
-            resolveWaitPromise(true, body.reason);
-            for (const cb of stopEventCallbacks) {
-              try {
-                cb(this.session.id, body);
-              } catch (err) {
-                logger.error(LOG, "Error in stop event callback", err);
-              }
-            }
-          } else if (message.event === "terminated" || message.event === "exited") {
-            logger.debug(LOG, `Program ${message.event} (Tracker)`);
-            resolveWaitPromise(false, message.event);
-          }
-        }
-      }
-    };
-    DapStopTrackerFactory = class {
-      createDebugAdapterTracker(session) {
-        return new DapStopTracker(session);
-      }
-    };
-  }
-});
-
-// src/debug/session.ts
-function resolveVSCodeVariables(str, workspaceFolder) {
-  if (!str)
-    return str;
-  const wsFolder = workspaceFolder ?? vscode3.workspace.workspaceFolders?.[0];
-  const wsPath = wsFolder?.uri.fsPath ?? process.cwd();
-  let resolved = str;
-  resolved = resolved.replace(/\$\{workspaceFolder\}/g, wsPath);
-  resolved = resolved.replace(/\$\{workspaceRoot\}/g, wsPath);
-  const activeFile = vscode3.window.activeTextEditor?.document.uri.fsPath;
-  if (activeFile) {
-    resolved = resolved.replace(/\$\{file\}/g, activeFile);
-    resolved = resolved.replace(/\$\{fileBasename\}/g, path2.basename(activeFile));
-    resolved = resolved.replace(/\$\{fileDirname\}/g, path2.dirname(activeFile));
-  }
-  resolved = resolved.replace(/\$\{cwd\}/g, process.cwd());
-  resolved = resolved.replace(/\$\{env:([^}]+)\}/g, (_, varName) => {
-    return process.env[varName] ?? "";
-  });
-  resolved = path2.normalize(resolved);
-  return resolved;
-}
-function getActiveSession() {
-  return vscode3.debug.activeDebugSession ?? _lastSession;
-}
-function ensureActiveSession(operationName) {
-  const session = vscode3.debug.activeDebugSession ?? _lastSession;
-  if (!session) {
-    throw new Error(
-      `No active debug session for '${operationName}'. Launch a session first.`
-    );
-  }
-  return session;
-}
-function clearLastSession() {
-  _lastSession = void 0;
-}
-async function launchSession(params) {
-  logger.info(LOG2, "Launching debug session", params);
-  if (!params.program && !params.configName) {
-    throw DebugError.missingParameter("program or configName");
-  }
-  if (params.program && !fs2.existsSync(params.program)) {
-    throw DebugError.binaryNotFound(params.program);
-  }
-  if (params.miDebuggerPath && !fs2.existsSync(params.miDebuggerPath)) {
-    throw DebugError.gdbNotFound(params.miDebuggerPath);
-  }
-  if (params.workspacePath && !fs2.existsSync(params.workspacePath)) {
-    throw DebugError.workspaceNotFound(params.workspacePath);
-  }
-  let workspaceFolder;
-  if (params.workspacePath) {
-    const allFolders = vscode3.workspace.workspaceFolders ?? [];
-    workspaceFolder = allFolders.find(
-      (f) => f.uri.fsPath === params.workspacePath
-    );
-    if (!workspaceFolder) {
-      workspaceFolder = {
-        uri: vscode3.Uri.file(params.workspacePath),
-        name: path2.basename(params.workspacePath),
-        index: 0
-      };
-      logger.warn(
-        LOG2,
-        `Workspace path provided (${params.workspacePath}) but not found in open folders. Creating virtual workspace.`
-      );
-    } else {
-      logger.info(LOG2, `Found matching workspace folder: ${workspaceFolder.name}`);
-    }
-  } else {
-    workspaceFolder = vscode3.workspace.workspaceFolders?.[0];
-  }
-  if (params.configName) {
-    logger.info(LOG2, `Using launch.json config: ${params.configName}`);
-    const allFolders = vscode3.workspace.workspaceFolders ?? [];
-    const searchFolders = allFolders.length > 0 ? allFolders : [void 0];
-    let started = false;
-    const stopPromise = waitForStopEvent(15e3);
-    for (const folder of searchFolders) {
-      try {
-        started = await vscode3.debug.startDebugging(folder, params.configName);
-        if (started)
-          break;
-      } catch {
-      }
-    }
-    if (started) {
-      const stopped = await stopPromise;
-      const session = getActiveSession();
-      if (session)
-        _lastSession = session;
-      return {
-        success: true,
-        sessionId: session?.id || "unknown",
-        stopReason: stopped ? "entry" : "running"
-      };
-    }
-    const fallbackDirs = [];
-    if (params.workspacePath) {
-      fallbackDirs.push(params.workspacePath);
-    }
-    if (params.program) {
-      let dir = path2.dirname(params.program);
-      for (let i = 0; i < 6; i++) {
-        fallbackDirs.push(dir);
-        const parent = path2.dirname(dir);
-        if (parent === dir)
-          break;
-        dir = parent;
-      }
-    }
-    for (const dir of fallbackDirs) {
-      const launchJsonPath = path2.join(dir, ".vscode", "launch.json");
-      try {
-        const raw = await fs2.promises.readFile(launchJsonPath, "utf-8");
-        const parsed = JSON.parse(raw);
-        const configs = parsed.configurations ?? [];
-        const found = configs.find((c) => c.name === params.configName);
-        if (!found)
-          continue;
-        logger.info(
-          LOG2,
-          `Found config '${params.configName}' in ${launchJsonPath}`
-        );
-        const wsFolder = {
-          uri: vscode3.Uri.file(dir),
-          name: path2.basename(dir),
-          index: 0
-        };
-        const resolvedConfig = JSON.parse(
-          resolveVSCodeVariables(JSON.stringify(found), wsFolder)
-        );
-        const stopPromise2 = waitForStopEvent(15e3);
-        started = await vscode3.debug.startDebugging(wsFolder, resolvedConfig);
-        if (started) {
-          const stopped = await stopPromise2;
-          const session = getActiveSession();
-          if (session)
-            _lastSession = session;
-          return {
-            success: true,
-            sessionId: session?.id || "unknown",
-            stopReason: stopped ? "entry" : "running"
-          };
-        }
-      } catch (e) {
-        logger.warn(LOG2, `Could not read ${launchJsonPath}: ${e.message}`);
-      }
-    }
-    return {
-      success: false,
-      errorMessage: `Configuration '${params.configName}' not found. Searched workspace folders and fallback paths.`
-    };
-  } else {
-    const debugType = params.type || "cppdbg";
-    const isCppdbg = debugType === "cppdbg";
-    const programPath = resolveVSCodeVariables(
-      params.program || "${workspaceFolder}/a.out",
-      workspaceFolder
-    );
-    const cwdPath = resolveVSCodeVariables(
-      params.cwd || workspaceFolder?.uri.fsPath || process.cwd(),
-      workspaceFolder
-    );
-    if (params.program && params.program !== programPath) {
-      logger.info(LOG2, `Resolved program path: ${params.program} -> ${programPath}`);
-    }
-    const debugConfig = {
-      name: "AI Debug Proxy",
-      type: debugType,
-      request: params.request || "launch",
-      program: programPath,
-      args: params.args || [],
-      cwd: cwdPath,
-      stopAtEntry: params.stopOnEntry ?? false,
-      ...isCppdbg ? {
-        environment: params.env ? Object.entries(params.env).map(([k, v]) => ({
-          name: k,
-          value: v ?? ""
-        })) : [],
-        externalConsole: false,
-        MIMode: "gdb"
-      } : {
-        env: params.env ?? {}
-      },
-      ...params.extra
-    };
-    const stopPromise = waitForStopEvent(15e3);
-    const started = await vscode3.debug.startDebugging(
-      workspaceFolder,
-      debugConfig
-    );
-    if (!started) {
-      return { success: false, errorMessage: "Failed to start debug session" };
-    }
-    const stopped = await stopPromise;
-    const session = getActiveSession();
-    if (!session) {
-      return {
-        success: true,
-        sessionId: "unknown",
-        stopReason: stopped ? "entry" : "running"
-      };
-    }
-    _lastSession = session;
-    return {
-      success: true,
-      sessionId: session.id,
-      stopReason: stopped ? "entry" : "running"
-    };
-  }
-}
-async function restartSession() {
-  const session = getActiveSession();
-  if (!session) {
-    return {
-      success: false,
-      errorMessage: "No active debug session to restart"
-    };
-  }
-  try {
-    await vscode3.commands.executeCommand("workbench.action.debug.restart");
-    return { success: true };
-  } catch (e) {
-    return { success: false, errorMessage: `Restart failed: ${e.message}` };
-  }
-}
-async function quitSession() {
-  const session = getActiveSession();
-  if (!session) {
-    return { success: false, errorMessage: "No active debug session to quit" };
-  }
-  try {
-    await vscode3.commands.executeCommand("workbench.action.debug.stop");
-    return { success: true };
-  } catch (e) {
-    return { success: false, errorMessage: `Quit failed: ${e.message}` };
-  }
-}
-var vscode3, path2, fs2, LOG2, _lastSession;
-var init_session = __esm({
-  "src/debug/session.ts"() {
-    "use strict";
-    vscode3 = __toESM(require("vscode"));
-    path2 = __toESM(require("path"));
-    fs2 = __toESM(require("fs"));
-    init_logging();
-    init_errors();
-    init_events();
-    LOG2 = "Session";
-  }
-});
-
-// src/debug/inspection.ts
-var inspection_exports = {};
-__export(inspection_exports, {
-  evaluate: () => evaluate,
-  executeStatement: () => executeStatement,
-  frameDown: () => frameDown,
-  frameUp: () => frameUp,
-  getSource: () => getSource,
-  getStackFrameVariables: () => getStackFrameVariables,
-  getStackTrace: () => getStackTrace,
-  gotoFrame: () => gotoFrame,
-  listAllLocals: () => listAllLocals,
-  listSource: () => listSource,
-  prettyPrint: () => prettyPrint,
-  whatis: () => whatis
-});
-async function getThreadId(session) {
-  const currentThreadId = getCurrentThreadId(session.id);
-  if (currentThreadId !== void 0) {
-    logger.debug(LOG4, `Using cached threadId: ${currentThreadId}`);
-    return currentThreadId;
-  }
-  const stopBody = getLastStopEventBody(session.id);
-  if (stopBody?.threadId) {
-    return stopBody.threadId;
-  }
-  try {
-    const res = await session.customRequest("threads");
-    if (!stopBody?.threadId) {
-      logger.warn(LOG4, "No stop event threadId, falling back to first thread");
-    }
-    return res.threads?.[0]?.id ?? 1;
-  } catch {
-    return 1;
-  }
-}
-async function getStackTrace(session) {
-  try {
-    const threadId = await getThreadId(session);
-    const res = await session.customRequest("stackTrace", {
-      threadId,
-      startFrame: 0,
-      levels: 50
-    });
-    const frames = (res.stackFrames || []).map((f) => ({
-      id: f.id,
-      name: f.name || "<unknown>",
-      sourcePath: f.source?.path || "",
-      line: f.line || 0,
-      column: f.column || 0
-    }));
-    if (frames.length > 0) {
-      updateCurrentTopFrameId(frames[0].id);
-      const topFrame = frames[0];
-      setCurrentFrameId(topFrame.id, session.id);
-    }
-    return { success: true, frames, totalFrames: res.totalFrames };
-  } catch (e) {
-    logger.error(LOG4, `Stack trace failed: ${e.message}`);
-    return { success: false, errorMessage: e.message, frames: [] };
-  }
-}
-async function getStackFrameVariables(session, params) {
-  const frameId = params.frameId ?? getCurrentTopFrameId();
-  if (frameId === void 0) {
-    return {
-      success: false,
-      errorMessage: "No frame ID available. Get stack trace first.",
-      scopes: []
-    };
-  }
-  try {
-    const scopesRes = await session.customRequest("scopes", { frameId });
-    const scopes = [];
-    for (const scope of scopesRes.scopes || []) {
-      if (params.scopeFilter && !params.scopeFilter.includes(scope.name)) {
-        continue;
-      }
-      if (scope.expensive && !params.scopeFilter?.includes(scope.name)) {
-        continue;
-      }
-      try {
-        const varsRes = await session.customRequest("variables", {
-          variablesReference: scope.variablesReference
-        });
-        scopes.push({
-          name: scope.name,
-          variables: (varsRes.variables || []).map((v) => ({
-            name: v.name,
-            // Sanitize value: strip control characters that cause jq parse
-            // errors in shell pipelines (e.g. GDB emits \v, raw \x?? seqs)
-            value: typeof v.value === "string" ? v.value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "") : v.value,
-            type: v.type || void 0,
-            variablesReference: v.variablesReference || 0
-          }))
-        });
-      } catch (e) {
-        logger.warn(
-          LOG4,
-          `Failed to get variables for scope '${scope.name}': ${e.message}`
-        );
-        scopes.push({ name: scope.name, variables: [] });
-      }
-    }
-    return { success: true, scopes };
-  } catch (e) {
-    logger.error(LOG4, `Get variables failed: ${e.message}`);
-    return { success: false, errorMessage: e.message, scopes: [] };
-  }
-}
-async function listAllLocals(session, frameId) {
-  try {
-    const res = await getStackFrameVariables(session, {
-      frameId,
-      scopeFilter: ["Locals", "Local", "Arguments", "Args", "Parameters"]
-    });
-    if (!res.success) {
-      return { success: false, variables: [], errorMessage: res.errorMessage };
-    }
-    const allVars = [];
-    const seen = /* @__PURE__ */ new Set();
-    for (const scope of res.scopes) {
-      for (const v of scope.variables) {
-        if (!seen.has(v.name)) {
-          allVars.push(v);
-          seen.add(v.name);
-        }
-      }
-    }
-    return { success: true, variables: allVars };
-  } catch (e) {
-    return { success: false, variables: [], errorMessage: e.message };
-  }
-}
-async function listSource(session, params) {
-  const frameId = params.frameId ?? getCurrentTopFrameId();
-  if (frameId === void 0) {
-    return { success: false, errorMessage: "No frame ID available" };
-  }
-  try {
-    const traceRes = await getStackTrace(session);
-    const frame = traceRes.frames.find((f) => f.id === frameId) || traceRes.frames[0];
-    if (!frame || !frame.sourcePath) {
-      return { success: false, errorMessage: "No source path for frame" };
-    }
-    let fsPath = frame.sourcePath;
-    if (/^[a-z][\w+\-.]*:\/\//i.test(fsPath)) {
-      fsPath = vscode5.Uri.parse(fsPath).path;
-    }
-    let uri;
-    const workspaceFolder = vscode5.workspace.workspaceFolders?.[0];
-    if (workspaceFolder) {
-      const relPath = vscode5.workspace.asRelativePath(fsPath, false);
-      if (relPath === fsPath) {
-        uri = vscode5.Uri.file(fsPath);
-      } else {
-        uri = vscode5.Uri.joinPath(workspaceFolder.uri, relPath);
-      }
-    } else {
-      uri = vscode5.Uri.file(fsPath);
-    }
-    const doc = await vscode5.workspace.openTextDocument(uri);
-    const lines = doc.getText().split("\n");
-    const around = params.linesAround ?? 10;
-    const start = Math.max(0, frame.line - 1 - around);
-    const end = Math.min(lines.length, frame.line - 1 + around + 1);
-    const sourceLines = lines.slice(start, end).map((line, i) => {
-      const lineNum = start + i + 1;
-      const marker = lineNum === frame.line ? ">>>" : "   ";
-      const cleanLine = line.replace(/[\x00-\x1F]/g, (char) => {
-        if (char === "	")
-          return "    ";
-        return "";
-      });
-      return `${marker} ${String(lineNum).padStart(4)} | ${cleanLine}`;
-    });
-    return {
-      success: true,
-      sourceCode: sourceLines.join("\n"),
-      currentLine: frame.line
-    };
-  } catch (e) {
-    return { success: false, errorMessage: e.message };
-  }
-}
-async function frameUp(session) {
-  try {
-    await vscode5.commands.executeCommand("workbench.action.debug.callStackUp");
-    return { success: true };
-  } catch (e) {
-    return { success: false, errorMessage: e.message };
-  }
-}
-async function frameDown(session) {
-  try {
-    await vscode5.commands.executeCommand(
-      "workbench.action.debug.callStackDown"
-    );
-    return { success: true };
-  } catch (e) {
-    return { success: false, errorMessage: e.message };
-  }
-}
-async function gotoFrame(session, params) {
-  if (params.frameId !== void 0) {
-    updateCurrentTopFrameId(params.frameId);
-    return { success: true };
-  }
-  return { success: false, errorMessage: "frameId is required" };
-}
-async function evaluate(session, params) {
-  const frameId = params.frameId ?? getCurrentFrameId(session.id) ?? getCurrentTopFrameId();
-  if (frameId === void 0) {
-    return {
-      success: false,
-      errorMessage: "No frame available for evaluation. Ensure debugger is stopped at a breakpoint.",
-      result: "",
-      variablesReference: 0
-    };
-  }
-  try {
-    const res = await session.customRequest("evaluate", {
-      expression: params.expression,
-      frameId,
-      context: params.context || "watch"
-    });
-    if (params.raw) {
-      return {
-        success: true,
-        result: res.result,
-        type: res.type,
-        variablesReference: res.variablesReference || 0
-      };
-    }
-    if (res.result && typeof res.result === "string") {
-      const result = res.result;
-      if (result.includes("-var-create") || result.includes("unable to create variable") || result.includes("No symbol") || result.includes("not available")) {
-        let errorMessage = `Cannot evaluate expression '${params.expression}'.`;
-        if (result.includes("-var-create") || result.includes("unable to create")) {
-          errorMessage += " Variable may be optimized out or not in current scope.";
-        } else if (result.includes("No symbol")) {
-          errorMessage += " Symbol not found. Check variable name and scope.";
-        } else if (result.includes("not available")) {
-          errorMessage += " Expression is not available in the current context.";
-        }
-        logger.debug(LOG4, `Evaluation returned error for '${params.expression}': ${result}`);
-        return {
-          success: false,
-          errorMessage,
-          result: "",
-          variablesReference: 0
-        };
-      }
-    }
-    return {
-      success: true,
-      result: res.result,
-      type: res.type,
-      variablesReference: res.variablesReference || 0
-    };
-  } catch (e) {
-    if (params.raw) {
-      return {
-        success: false,
-        errorMessage: e.message,
-        result: "",
-        variablesReference: 0
-      };
-    }
-    let errorMessage = e.message;
-    if (errorMessage.includes("-var-create")) {
-      errorMessage = `Cannot evaluate expression '${params.expression}'. Variable may be optimized out or not in current scope.`;
-    } else if (errorMessage.includes("not available")) {
-      errorMessage = `Expression '${params.expression}' is not available in the current context.`;
-    } else if (errorMessage.includes("No symbol")) {
-      errorMessage = `Symbol '${params.expression}' not found. Check variable name and scope.`;
-    }
-    logger.debug(LOG4, `Evaluation failed for '${params.expression}': ${e.message}`);
-    return {
-      success: false,
-      errorMessage,
-      result: "",
-      variablesReference: 0
-    };
-  }
-}
-async function prettyPrint(session, params) {
-  const evalResult = await evaluate(session, params);
-  if (!evalResult.success) {
-    return {
-      success: false,
-      errorMessage: evalResult.errorMessage,
-      result: "",
-      variablesReference: 0
-    };
-  }
-  const base = {
-    success: true,
-    result: evalResult.result,
-    type: evalResult.type,
-    variablesReference: evalResult.variablesReference
-  };
-  if (evalResult.variablesReference > 0) {
-    try {
-      const varsRes = await session.customRequest("variables", {
-        variablesReference: evalResult.variablesReference
-      });
-      base.fields = (varsRes.variables || []).map((v) => ({
-        name: v.name,
-        type: v.type || void 0,
-        value: typeof v.value === "string" ? v.value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "") : String(v.value ?? "")
-      }));
-    } catch {
-    }
-  }
-  return base;
-}
-async function whatis(session, params) {
-  return evaluate(session, {
-    ...params,
-    expression: `(typeof ${params.expression})`,
-    context: "repl"
-  });
-}
-async function executeStatement(session, params) {
-  return evaluate(session, {
-    expression: params.statement,
-    context: "repl",
-    frameId: params.frameId
-  });
-}
-async function getSource(session, params) {
-  try {
-    const result = await evaluate(session, {
-      expression: params.expression,
-      context: "repl",
-      frameId: params.frameId
-    });
-    return {
-      success: result.success,
-      sourcePath: result.result,
-      errorMessage: result.errorMessage
-    };
-  } catch (e) {
-    return { success: false, errorMessage: e.message };
-  }
-}
-var vscode5, LOG4;
-var init_inspection = __esm({
-  "src/debug/inspection.ts"() {
-    "use strict";
-    vscode5 = __toESM(require("vscode"));
-    init_logging();
-    init_events();
-    LOG4 = "Inspection";
-  }
-});
-
-// src/agent/SubagentOrchestrator.ts
-var SubagentOrchestrator_exports = {};
-__export(SubagentOrchestrator_exports, {
-  SubagentOrchestrator: () => SubagentOrchestrator,
-  subagentOrchestrator: () => subagentOrchestrator
-});
-var import_child_process2, vscode8, LOG14, MAX_TASKS, MAX_CONCURRENCY, MAX_OUTPUT_BYTES, SubagentOrchestrator, subagentOrchestrator;
-var init_SubagentOrchestrator = __esm({
-  "src/agent/SubagentOrchestrator.ts"() {
-    "use strict";
-    import_child_process2 = require("child_process");
-    vscode8 = __toESM(require("vscode"));
-    init_logging();
-    LOG14 = "SubagentOrchestrator";
-    MAX_TASKS = 50;
-    MAX_CONCURRENCY = 5;
-    MAX_OUTPUT_BYTES = 1024 * 1024;
-    SubagentOrchestrator = class {
-      /**
-       * $DD DD-SW-5.1
-       *
-       * @brief Executes multiple external agent tasks with a concurrency limit.
-       *
-       * @param [in]  tasks           The array of subagent CLI tasks to run.
-       * @param [in]  timeoutMs       Maximum time to wait before killing a task.
-       * @param [in]  maxConcurrency   Maximum number of tasks to run simultaneously.
-       *
-       * @return Promise resolving to an array of results.
-       *
-       * @throws Error if the task count exceeds MAX_TASKS.
-       *
-       * [Satisfies $ARCH ARCH-5]
-       */
-      async runParallelSubagents(tasks, timeoutMs = 6e4, maxConcurrency = MAX_CONCURRENCY) {
-        if (tasks.length > MAX_TASKS) {
-          throw new Error(`Too many tasks: ${tasks.length} (max ${MAX_TASKS})`);
-        }
-        logger.info(
-          LOG14,
-          `Starting ${tasks.length} subagent tasks (concurrency=${maxConcurrency})...`
-        );
-        const results = new Array(tasks.length);
-        let nextIndex = 0;
-        const runNext = async () => {
-          while (nextIndex < tasks.length) {
-            const index = nextIndex++;
-            results[index] = await this.runSingleSubagent(tasks[index], timeoutMs);
-          }
-        };
-        const workers = Array.from(
-          { length: Math.min(maxConcurrency, tasks.length) },
-          () => runNext()
-        );
-        await Promise.all(workers);
-        logger.info(LOG14, `All ${tasks.length} subagents completed.`);
-        return results;
-      }
-      /**************************************************************************
-       * Internal Helpers
-       **************************************************************************/
-      /**
-       * @brief Run a single subagent task.
-       *
-       * @param [in]  task        Task configuration.
-       * @param [in]  timeoutMs   Execution timeout.
-       *
-       * @return Promise resolving to the individual task result.
-       */
-      runSingleSubagent(task, timeoutMs) {
-        return new Promise((resolve) => {
-          const config = vscode8.workspace.getConfiguration("aiDebugProxy");
-          const allowedCommands = config.get("subagents.allowedCommands", []);
-          if (allowedCommands.length === 0 || !allowedCommands.includes(task.command)) {
-            logger.error(LOG14, `[Subagent ${task.id}] Blocked by whitelist: ${task.command}`);
-            resolve({
-              id: task.id,
-              success: false,
-              stdout: "",
-              stderr: `Command '${task.command}' is not whitelisted in aiDebugProxy.subagents.allowedCommands`,
-              exitCode: -3
-            });
-            return;
-          }
-          logger.debug(
-            LOG14,
-            `[Subagent ${task.id}] Spawning: ${task.command} ${task.args.join(" ")}`
-          );
-          const child = (0, import_child_process2.spawn)(task.command, task.args, {
-            shell: false
-          });
-          if (task.input) {
-            child.stdin.write(task.input);
-            child.stdin.end();
-          }
-          let stdoutStr = "";
-          let stderrStr = "";
-          child.stdout.on("data", (data) => {
-            if (stdoutStr.length < MAX_OUTPUT_BYTES) {
-              stdoutStr += data.toString();
-              if (stdoutStr.length >= MAX_OUTPUT_BYTES) {
-                stdoutStr = stdoutStr.slice(0, MAX_OUTPUT_BYTES) + "\n[Output truncated]";
-              }
-            }
-          });
-          child.stderr.on("data", (data) => {
-            if (stderrStr.length < MAX_OUTPUT_BYTES) {
-              stderrStr += data.toString();
-            }
-          });
-          let timeout = setTimeout(() => {
-            logger.warn(
-              LOG14,
-              `[Subagent ${task.id}] Timed out after ${timeoutMs}ms. Killing process...`
-            );
-            child.kill();
-            resolve({
-              id: task.id,
-              success: false,
-              stdout: stdoutStr,
-              stderr: stderrStr + `
-[Timeout after ${timeoutMs}ms]`,
-              exitCode: -1
-            });
-            timeout = null;
-          }, timeoutMs);
-          child.on("close", (code) => {
-            if (timeout) {
-              clearTimeout(timeout);
-            }
-            logger.debug(LOG14, `[Subagent ${task.id}] Exited with code ${code}`);
-            resolve({
-              id: task.id,
-              success: code === 0,
-              stdout: stdoutStr,
-              stderr: stderrStr,
-              exitCode: code
-            });
-          });
-          child.on("error", (err) => {
-            if (timeout) {
-              clearTimeout(timeout);
-            }
-            logger.error(
-              LOG14,
-              `[Subagent ${task.id}] Failed to spawn: ${err.message}`
-            );
-            resolve({
-              id: task.id,
-              success: false,
-              stdout: stdoutStr,
-              stderr: err.message,
-              exitCode: -2
-            });
-          });
-        });
-      }
-    };
-    subagentOrchestrator = new SubagentOrchestrator();
-  }
-});
-
-// src/agent/prompts.ts
-var prompts_exports = {};
-__export(prompts_exports, {
-  subagentCreatorPrompt: () => subagentCreatorPrompt
-});
-var subagentCreatorPrompt;
-var init_prompts = __esm({
-  "src/agent/prompts.ts"() {
-    "use strict";
-    subagentCreatorPrompt = `---
-name: user-defined-agent-creator
-description: >
-  Expert system for creating high-quality, reusable predefined subagents following best practices.
-  MAIN AGENT INSTRUCTIONS: Before launching this subagent, you MUST gather the following information
-  from the user: (1) Whether this should be project-level (.ai-debug/agents/) or user-level
-  (~/.ai-debug/agents/), (2) The specific task/workflow the subagent will handle, (3) Key requirements
-  and constraints, (4) Any specific methodologies or best practices to emphasize. After gathering
-  this info, launch this subagent with ALL details. Once the subagent completes, review the created
-  file with the user and iterate if needed.
----
-
-You are an autonomous subagent creator that will generate and save a high-quality predefined subagent based on the requirements provided. You will work independently without asking questions.
-
-## CRITICAL INSTRUCTIONS
-- **ONLY CREATE MD FILES**: You must ONLY create a single markdown (.md) file for the subagent definition
-- **NO ADDITIONAL FILES**: Do NOT create user guides, documentation files, example files, or any other supplementary files
-- **SINGLE FILE OUTPUT**: The entire subagent must be self-contained in one MD file
-
-## Your Mission
-
-You have been provided with all necessary information to create a predefined subagent. You will:
-1. Analyze the requirements and reflect on available tools
-2. Identify optimal tool usage patterns for the specific domain
-3. Apply industry best practices with tool-aware workflows
-4. Generate a comprehensive system prompt leveraging the proxy's capabilities
-5. Save ONLY the MD file to the appropriate location
-6. Report the result
-
-## Core Principles You Will Apply
-
-### Software Engineering Best Practices
-- **DRY (Don't Repeat Yourself)**: Ensure the subagent promotes code reusability
-- **KISS (Keep It Simple, Stupid)**: Design clear, straightforward workflows
-- **SOLID Principles**: Single responsibility, open-closed, proper abstractions
-- **YAGNI (You Aren't Gonna Need It)**: Focus on current requirements, not hypothetical futures
-- **Clean Code**: Readable, maintainable, and well-structured approaches
-- **Defensive Programming**: Handle edge cases and validate inputs
-- **Fail Fast**: Early error detection and clear error messaging
-
-## Available Tools and Capabilities
-
-### Core Development Tools
-- **File Operations**: Read, Write, Edit, MultiEdit for efficient code manipulation
-- **Search Tools**: Grep, Glob, LS for codebase exploration and pattern matching
-- **Version Control**: Git operations for commits, diffs, status checks
-- **Terminal**: Bash execution with background processes and output monitoring
-
-### Specialized Debugging Tools
-- **Session Control**: Start/stop debug sessions, manage configurations
-- **Breakpoints**: Set/remove breakpoints, conditional breakpoints, logpoints
-- **Execution Control**: Step over/into/out, continue, pause, restart
-- **Inspection**: Evaluate expressions, get variables, stack traces, scopes
-
-### Language Server Protocol (LSP) Tools
-- **Navigation**: GoToDefinition, FindImplementations, FindUsages, GetDeclaration
-- **Code Intelligence**: GetHoverInfo, GetCompletions, GetSignatureHelp, GetCodeActions
-- **Symbol Operations**: GetSymbols, GetWorkspaceSymbols
-- **Refactoring**: Rename, GetTypeHierarchy, GetCallHierarchy
-
-## Workflow
-
-### Step 1: Analyze Requirements
-- Extract the core problem this subagent solves
-- Identify which tools are most relevant
-- Map requirements to specific tool capabilities
-
-### Step 2: Design the Tool-Aware System Prompt
-Create a comprehensive prompt that includes:
-1. **Role Definition**
-2. **Methodology Section**
-3. **Standards and Principles**
-4. **Output Specifications**
-
-### Step 3: Generate the Tool-Optimized Subagent File
-Create the markdown file with this exact format:
-
-\`\`\`markdown
----
-name: [unique-kebab-case-identifier]
-description: [Concise description of purpose and key tools used]
----
-
-[Comprehensive system prompt]
-
-## Core Responsibilities
-[What this subagent does]
-
-## Primary Tools and Usage Patterns
-[List the main tools and how]
-
-## Methodology
-[Step-by-step approach with explicit tool usage]
-
-## Tool Optimization Guidelines
-[Specific patterns for efficiency]
-\`\`\`
-
-### Step 4: Save ONLY the MD File (Critical)
-Save to:
-- **Project-level**: \`.ai-debug/agents/[name].md\`
-- **User-level**: \`~/.ai-debug/agents/[name].md\`
-
-### Step 5: Report Results
-`;
-  }
-});
-
-// src/extension.ts
-var extension_exports = {};
-__export(extension_exports, {
-  activate: () => activate,
-  deactivate: () => deactivate
-});
-module.exports = __toCommonJS(extension_exports);
-var fs7 = __toESM(require("fs"));
-var os = __toESM(require("os"));
-var path6 = __toESM(require("path"));
-var vscode11 = __toESM(require("vscode"));
-
-// src/server/HttpServer.ts
-var http = __toESM(require("http"));
-init_logging();
-
-// src/server/router.ts
-var path5 = __toESM(require("path"));
-var fs6 = __toESM(require("fs"));
-
-// src/debug/DebugController.ts
-var vscode6 = __toESM(require("vscode"));
-init_logging();
-
-// src/utils/validation.ts
-function ok(params) {
-  return { isValid: true, params };
-}
-function fail(message) {
-  return { isValid: false, message };
-}
-function isNonEmptyString(v) {
-  return typeof v === "string" && v.trim().length > 0;
-}
-function isNumber(v) {
-  return typeof v === "number" && !isNaN(v);
-}
-function validateLocation(loc) {
-  if (!loc || typeof loc !== "object")
-    return null;
-  if (!isNonEmptyString(loc.path) || !isNumber(loc.line))
-    return null;
-  return { path: loc.path, line: loc.line, column: loc.column };
-}
-function validateOperationArgs(operation, args) {
-  switch (operation) {
-    case "continue":
-    case "next":
-    case "step_in":
-    case "step_out":
-    case "restart":
-    case "quit":
-    case "stack_trace":
-    case "up":
-    case "down":
-    case "get_active_breakpoints":
-    case "get_last_stop_info":
-    case "get_scope_preview":
-      return ok(args || {});
-    case "launch": {
-      if (!args || typeof args !== "object")
-        return ok({});
-      return ok(args);
-    }
-    case "set_breakpoint":
-    case "set_temp_breakpoint":
-    case "remove_breakpoint": {
-      if (!args)
-        return fail(`'${operation}' requires a 'location' parameter`);
-      const loc = validateLocation(args.location);
-      if (!loc)
-        return fail(
-          `'${operation}' requires 'location' with 'path' (string) and 'line' (number)`
-        );
-      return ok({ ...args, location: loc });
-    }
-    case "remove_all_breakpoints_in_file": {
-      if (!args || !isNonEmptyString(args.filePath)) {
-        return fail(
-          "'remove_all_breakpoints_in_file' requires 'filePath' (string)"
-        );
-      }
-      return ok(args);
-    }
-    case "disable_breakpoint":
-    case "enable_breakpoint": {
-      if (!args)
-        return fail(`'${operation}' requires a 'location' parameter`);
-      const loc = validateLocation(args.location);
-      if (!loc)
-        return fail(
-          `'${operation}' requires 'location' with 'path' and 'line'`
-        );
-      return ok({
-        ...args,
-        location: loc,
-        enable: operation === "enable_breakpoint"
-      });
-    }
-    case "ignore_breakpoint": {
-      if (!args)
-        return fail(
-          "'ignore_breakpoint' requires 'location' and 'ignoreCount'"
-        );
-      const loc = validateLocation(args.location);
-      if (!loc)
-        return fail(
-          "'ignore_breakpoint' requires 'location' with 'path' and 'line'"
-        );
-      if (args.ignoreCount !== null && !isNumber(args.ignoreCount)) {
-        return fail("'ignoreCount' must be a number or null");
-      }
-      return ok({ ...args, location: loc });
-    }
-    case "set_breakpoint_condition": {
-      if (!args)
-        return fail(
-          "'set_breakpoint_condition' requires 'location' and 'condition'"
-        );
-      const loc = validateLocation(args.location);
-      if (!loc)
-        return fail("requires 'location' with 'path' and 'line'");
-      return ok({ ...args, location: loc });
-    }
-    case "jump":
-    case "until": {
-      if (!args || !isNumber(args.line)) {
-        return fail(`'${operation}' requires 'line' (number)`);
-      }
-      return ok(args);
-    }
-    case "goto_frame": {
-      if (!args || !isNumber(args.frameId)) {
-        return fail("'goto_frame' requires 'frameId' (number)");
-      }
-      return ok(args);
-    }
-    case "list_source":
-      return ok(args || {});
-    case "get_source": {
-      if (!args || !isNonEmptyString(args.expression)) {
-        return fail("'get_source' requires 'expression' (string)");
-      }
-      return ok(args);
-    }
-    case "get_stack_frame_variables":
-    case "get_args":
-    case "list_all_locals":
-      return ok(args || {});
-    case "evaluate":
-    case "pretty_print":
-    case "whatis": {
-      if (!args || !isNonEmptyString(args.expression)) {
-        return fail(`'${operation}' requires 'expression' (string)`);
-      }
-      return ok(args);
-    }
-    case "execute_statement": {
-      if (!args || !isNonEmptyString(args.statement)) {
-        return fail("'execute_statement' requires 'statement' (string)");
-      }
-      return ok(args);
-    }
-    case "list_threads":
-      return ok(args || {});
-    case "switch_thread": {
-      if (!args || !isNumber(args.threadId)) {
-        return fail("'switch_thread' requires 'threadId' (number)");
-      }
-      return ok(args);
-    }
-    case "get_registers": {
-      if (args && args.frameId !== void 0 && !isNumber(args.frameId)) {
-        return fail("'get_registers' requires 'frameId' to be a number if provided");
-      }
-      return ok(args || {});
-    }
-    case "read_memory": {
-      if (!args || !isNonEmptyString(args.memoryReference) || !isNumber(args.count)) {
-        return fail("'read_memory' requires 'memoryReference' (string) and 'count' (number)");
-      }
-      if (args.offset !== void 0 && !isNumber(args.offset)) {
-        return fail("'read_memory' requires 'offset' to be a number if provided");
-      }
-      return ok(args);
-    }
-    case "disassemble": {
-      if (!args || !isNonEmptyString(args.memoryReference) || !isNumber(args.instructionCount)) {
-        return fail("'disassemble' requires 'memoryReference' (string) and 'instructionCount' (number)");
-      }
-      if (args.offset !== void 0 && !isNumber(args.offset)) {
-        return fail("'offset' must be a number");
-      }
-      if (args.instructionOffset !== void 0 && !isNumber(args.instructionOffset)) {
-        return fail("'instructionOffset' must be a number");
-      }
-      return ok(args);
-    }
-    case "get_data_breakpoint_info": {
-      if (!args || !isNonEmptyString(args.name)) {
-        return fail("'get_data_breakpoint_info' requires 'name' (string)");
-      }
-      return ok(args);
-    }
-    case "set_data_breakpoint": {
-      if (!args || !isNonEmptyString(args.dataId)) {
-        return fail("'set_data_breakpoint' requires 'dataId' (string)");
-      }
-      return ok(args);
-    }
-    case "watch": {
-      if (!args || !isNonEmptyString(args.name)) {
-        return fail("'watch' requires 'name' (string)");
-      }
-      if (args.accessType !== void 0 && !["read", "write", "readWrite"].includes(args.accessType)) {
-        return fail("'watch' accessType must be 'read', 'write', or 'readWrite'");
-      }
-      return ok(args);
-    }
-    default:
-      return fail(`Unknown operation: '${operation}'`);
-  }
-}
-
-// src/debug/DebugController.ts
-init_session();
-
-// src/debug/breakpoints.ts
-var vscode4 = __toESM(require("vscode"));
-var path3 = __toESM(require("path"));
-var fs3 = __toESM(require("fs"));
-init_logging();
-var LOG3 = "Breakpoints";
-function findBreakpointAtLocation(path7, line) {
-  const uri = vscode4.Uri.file(path7);
-  return vscode4.debug.breakpoints.find((bp) => {
-    if (bp instanceof vscode4.SourceBreakpoint) {
-      return bp.location.uri.fsPath === uri.fsPath && bp.location.range.start.line === line - 1;
-    }
-    return false;
-  });
-}
-async function setBreakpoint(params) {
-  const { location, condition, hitCondition, logMessage } = params;
-  logger.info(LOG3, `Setting breakpoint at ${location.path}:${location.line}`);
-  const normalizedPath = path3.normalize(location.path);
-  if (!path3.isAbsolute(normalizedPath)) {
-    return { success: false, errorMessage: "Breakpoint path must be absolute" };
-  }
-  if (!fs3.existsSync(normalizedPath)) {
-    return { success: false, errorMessage: "File not found for breakpoint" };
-  }
-  try {
-    const uri = vscode4.Uri.file(normalizedPath);
-    const pos = new vscode4.Position(
-      location.line - 1,
-      (location.column ?? 1) - 1
-    );
-    const loc = new vscode4.Location(uri, pos);
-    const bp = new vscode4.SourceBreakpoint(
-      loc,
-      true,
-      condition,
-      hitCondition,
-      logMessage
-    );
-    vscode4.debug.addBreakpoints([bp]);
-    logger.info(LOG3, `Breakpoint set at ${location.path}:${location.line}`);
-    return { success: true };
-  } catch (e) {
-    logger.error(LOG3, `Failed to set breakpoint: ${e.message}`);
-    return { success: false, errorMessage: e.message };
-  }
-}
-async function setTempBreakpoint(params) {
-  return setBreakpoint(params);
-}
-async function removeBreakpointByLocation(params) {
-  const { location } = params;
-  logger.info(LOG3, `Removing breakpoint at ${location.path}:${location.line}`);
-  const normalizedPath = path3.normalize(location.path);
-  if (!path3.isAbsolute(normalizedPath)) {
-    return { success: false, errorMessage: "Path must be absolute" };
-  }
-  const existing = findBreakpointAtLocation(normalizedPath, location.line);
-  if (!existing) {
-    return {
-      success: false,
-      errorMessage: `No breakpoint found at ${location.path}:${location.line}`
-    };
-  }
-  vscode4.debug.removeBreakpoints([existing]);
-  logger.info(LOG3, `Breakpoint removed at ${location.path}:${location.line}`);
-  return { success: true };
-}
-async function removeAllBreakpointsInFile(filePath) {
-  logger.info(LOG3, `Removing all breakpoints in ${filePath}`);
-  const normalizedPath = path3.normalize(filePath);
-  if (!path3.isAbsolute(normalizedPath)) {
-    return { success: false, errorMessage: "Path must be absolute" };
-  }
-  const uri = vscode4.Uri.file(normalizedPath);
-  const toRemove = vscode4.debug.breakpoints.filter((bp) => {
-    if (bp instanceof vscode4.SourceBreakpoint) {
-      return bp.location.uri.fsPath === uri.fsPath;
-    }
-    return false;
-  });
-  if (toRemove.length === 0) {
-    return { success: true, errorMessage: "No breakpoints found in file" };
-  }
-  vscode4.debug.removeBreakpoints(toRemove);
-  logger.info(LOG3, `Removed ${toRemove.length} breakpoints from ${filePath}`);
-  return { success: true };
-}
-async function toggleBreakpoint(params) {
-  const { location, enable } = params;
-  logger.info(
-    LOG3,
-    `${enable ? "Enabling" : "Disabling"} breakpoint at ${location.path}:${location.line}`
-  );
-  const normalizedPath = path3.normalize(location.path);
-  if (!path3.isAbsolute(normalizedPath)) {
-    return { success: false, errorMessage: "Path must be absolute" };
-  }
-  const existing = findBreakpointAtLocation(normalizedPath, location.line);
-  if (!existing) {
-    return {
-      success: false,
-      errorMessage: `No breakpoint found at ${location.path}:${location.line}`
-    };
-  }
-  vscode4.debug.removeBreakpoints([existing]);
-  const uri = vscode4.Uri.file(location.path);
-  const pos = new vscode4.Position(location.line - 1, 0);
-  const loc = new vscode4.Location(uri, pos);
-  const newBp = new vscode4.SourceBreakpoint(
-    loc,
-    enable,
-    existing.condition,
-    existing.hitCondition,
-    existing.logMessage
-  );
-  vscode4.debug.addBreakpoints([newBp]);
-  return { success: true };
-}
-async function ignoreBreakpoint(params) {
-  const { location, ignoreCount } = params;
-  const normalizedPath = path3.normalize(location.path);
-  if (!path3.isAbsolute(normalizedPath)) {
-    return { success: false, errorMessage: "Path must be absolute" };
-  }
-  const existing = findBreakpointAtLocation(normalizedPath, location.line);
-  if (!existing) {
-    return {
-      success: false,
-      errorMessage: `No breakpoint at ${location.path}:${location.line}`
-    };
-  }
-  vscode4.debug.removeBreakpoints([existing]);
-  const uri = vscode4.Uri.file(location.path);
-  const pos = new vscode4.Position(location.line - 1, 0);
-  const loc = new vscode4.Location(uri, pos);
-  const hitCond = ignoreCount !== null ? String(ignoreCount) : void 0;
-  const newBp = new vscode4.SourceBreakpoint(
-    loc,
-    true,
-    existing.condition,
-    hitCond,
-    existing.logMessage
-  );
-  vscode4.debug.addBreakpoints([newBp]);
-  return { success: true };
-}
-async function setBreakpointCondition(params) {
-  const { location, condition } = params;
-  const normalizedPath = path3.normalize(location.path);
-  if (!path3.isAbsolute(normalizedPath)) {
-    return { success: false, errorMessage: "Path must be absolute" };
-  }
-  const existing = findBreakpointAtLocation(normalizedPath, location.line);
-  if (!existing) {
-    return {
-      success: false,
-      errorMessage: `No breakpoint at ${location.path}:${location.line}`
-    };
-  }
-  vscode4.debug.removeBreakpoints([existing]);
-  const uri = vscode4.Uri.file(location.path);
-  const pos = new vscode4.Position(location.line - 1, 0);
-  const loc = new vscode4.Location(uri, pos);
-  const cond = condition ?? void 0;
-  const newBp = new vscode4.SourceBreakpoint(
-    loc,
-    true,
-    cond,
-    existing.hitCondition,
-    existing.logMessage
-  );
-  vscode4.debug.addBreakpoints([newBp]);
-  return { success: true };
-}
-async function getActiveBreakpoints() {
-  const breakpoints = vscode4.debug.breakpoints.filter(
-    (bp) => bp instanceof vscode4.SourceBreakpoint
-  ).map((bp) => ({
-    verified: true,
-    location: {
-      path: bp.location.uri.fsPath,
-      line: bp.location.range.start.line + 1,
-      column: bp.location.range.start.character + 1
-    },
-    condition: bp.condition,
-    hitCondition: bp.hitCondition,
-    logMessage: bp.logMessage,
-    enabled: bp.enabled
-  }));
-  return { success: true, breakpoints };
-}
-async function getDataBreakpointInfo(session, params) {
-  try {
-    const res = await session.customRequest("dataBreakpointInfo", {
-      name: params.name,
-      variablesReference: params.variablesReference,
-      frameId: params.frameId
-    });
-    return { success: true, ...res };
-  } catch (e) {
-    logger.error(LOG3, `getDataBreakpointInfo failed: ${e.message}`);
-    return { success: false, errorMessage: `getDataBreakpointInfo failed: ${e.message}` };
-  }
-}
-async function setDataBreakpoint(params) {
-  const { dataId, accessType, condition, hitCondition } = params;
-  logger.info(LOG3, `Setting data breakpoint for dataId ${dataId}`);
-  try {
-    const bp = new vscode4.DataBreakpoint(
-      `Watch ${dataId}`,
-      dataId,
-      false,
-      // canPersist
-      hitCondition,
-      condition
-    );
-    vscode4.debug.addBreakpoints([bp]);
-    return { success: true };
-  } catch (e) {
-    logger.error(LOG3, `Failed to set data breakpoint: ${e.message}`);
-    return { success: false, errorMessage: e.message };
-  }
-}
-async function setBreakpoints(params) {
-  const { file, breakpoints } = params;
-  logger.info(LOG3, `Setting ${breakpoints.length} breakpoints in ${file}`);
-  try {
-    const results = [];
-    const bps = [];
-    for (const bp of breakpoints) {
-      const uri = vscode4.Uri.file(file);
-      const range = new vscode4.Range(
-        bp.line - 1,
-        bp.column ? bp.column - 1 : 0,
-        bp.line - 1,
-        bp.column ? bp.column - 1 : 0
-      );
-      const location = new vscode4.Location(uri, range);
-      const sourceBp = new vscode4.SourceBreakpoint(
-        location,
-        bp.condition ? true : false,
-        bp.condition,
-        bp.hitCondition,
-        bp.logMessage
-      );
-      bps.push(sourceBp);
-    }
-    vscode4.debug.addBreakpoints(bps);
-    for (let i = 0; i < breakpoints.length; i++) {
-      const bp = breakpoints[i];
-      results.push({
-        id: i + 1,
-        line: bp.line,
-        verified: true,
-        condition: bp.condition,
-        source: file
-      });
-    }
-    return {
-      success: true,
-      breakpoints: results
-    };
-  } catch (e) {
-    logger.error(LOG3, `Failed to set batch breakpoints: ${e.message}`);
-    return {
-      success: false,
-      error: {
-        code: "OPERATION_FAILED",
-        message: `Failed to set breakpoints: ${e.message}`
-      },
-      breakpoints: []
-    };
-  }
-}
-
-// src/debug/execution.ts
-init_logging();
-init_events();
-init_inspection();
-var LOG5 = "Execution";
-var STEP_TIMEOUT_MS = 3e4;
-var CONTINUE_TIMEOUT_MS = 3e5;
-async function fetchScopePreview(session) {
-  try {
-    const frameId = getCurrentFrameId(session.id) ?? 0;
-    const threadId = getCurrentThreadId(session.id) ?? 1;
-    const scopesResponse = await session.customRequest("scopes", {
-      frameId,
-      threadId
-    });
-    if (!scopesResponse.scopes || !Array.isArray(scopesResponse.scopes)) {
-      return null;
-    }
-    const scopePreview = {
-      parameters: [],
-      locals: [],
-      uninitialized: []
-    };
-    for (const scope of scopesResponse.scopes) {
-      if (!scope.variablesReference)
-        continue;
-      const varsResponse = await session.customRequest("variables", {
-        variablesReference: scope.variablesReference
-      });
-      if (!varsResponse.variables || !Array.isArray(varsResponse.variables)) {
-        continue;
-      }
-      const isArguments = scope.name.toLowerCase().includes("argument") || scope.name.toLowerCase().includes("param");
-      for (const variable of varsResponse.variables) {
-        const varInfo = {
-          name: variable.name,
-          type: variable.type || "unknown",
-          value: variable.value || null,
-          status: isUninitialized(variable.value) ? "uninitialized" : "initialized"
-        };
-        if (isArguments) {
-          scopePreview.parameters.push(varInfo);
-        } else if (scope.name.toLowerCase().includes("local")) {
-          scopePreview.locals.push(varInfo);
+        const m = octalMatch.exec(str.substr(i));
+        if (m) {
+          ret.writeUInt8(parseInt(m[0], 8), bufIndex++);
+          i += 2;
         } else {
-          scopePreview.locals.push(varInfo);
+          bufIndex += ret.write(str[i], bufIndex);
         }
       }
-    }
-    logger.debug(LOG5, `Fetched scope: ${scopePreview.parameters.length} params, ${scopePreview.locals.length} locals`);
-    return scopePreview;
-  } catch (e) {
-    logger.warn(LOG5, `Failed to fetch scope preview: ${e.message}`);
-    return null;
-  }
-}
-function isUninitialized(value) {
-  if (!value)
-    return true;
-  const uninitializedPatterns = [
-    "optimized out",
-    "<optimized out>",
-    "<not available>",
-    "<unavailable>",
-    "cannot be used",
-    "no value"
-  ];
-  const lowerValue = value.toLowerCase();
-  return uninitializedPatterns.some((pattern) => lowerValue.includes(pattern));
-}
-async function getThreadId2(session) {
-  const currentId = getCurrentThreadId(session.id);
-  if (currentId !== void 0) {
-    return currentId;
-  }
-  try {
-    const threadsRes = await session.customRequest("threads");
-    if (threadsRes.threads && threadsRes.threads.length > 0) {
-      const id = threadsRes.threads[0].id;
-      setCurrentThreadId(id, session.id);
-      return id;
-    }
-  } catch (e) {
-    logger.warn(LOG5, `Failed to get threads: ${e.message}`);
-  }
-  return 1;
-}
-async function buildNavigationResult(session, stopReason) {
-  try {
-    const traceResult = await getStackTrace(session);
-    const topFrame = traceResult.success && traceResult.frames.length > 0 ? traceResult.frames[0] : void 0;
-    if (topFrame) {
-      updateCurrentTopFrameId(topFrame.id);
-    }
-    return {
-      success: true,
-      frame: topFrame,
-      stopReason: stopReason || "step"
-    };
-  } catch (e) {
-    return { success: true, stopReason: stopReason || "unknown" };
-  }
-}
-async function executeNavigationCommand(session, dapCommand, operationName, timeoutMs) {
-  logger.info(LOG5, `Executing ${operationName} (session: ${session.id})`);
-  try {
-    const threadId = await getThreadId2(session);
-    invalidateState(session.id);
-    const stopPromise = waitForStopEvent(timeoutMs);
-    const dapArgs = { threadId };
-    await session.customRequest(dapCommand, dapArgs);
-    const { stopped, reason } = await stopPromise;
-    if (!stopped) {
-      if (reason === "terminated" || reason === "exited") {
-        logger.info(LOG5, `${operationName}: Program ${reason}`);
-        return {
-          success: true,
-          stopReason: reason,
-          errorMessage: `Program ${reason}.`
-        };
-      }
-      logger.warn(
-        LOG5,
-        `${operationName} timeout: debugger may still be running or stalled`
-      );
-      return {
-        success: true,
-        stopReason: "timeout",
-        errorMessage: `${operationName} timeout (${timeoutMs}ms). Program may still be running.`
-      };
-    }
-    return await buildNavigationResult(session, reason || operationName);
-  } catch (e) {
-    logger.error(LOG5, `${operationName} failed: ${e.message}`);
-    return {
-      success: false,
-      errorMessage: `${operationName} failed: ${e.message}`
-    };
-  }
-}
-async function listThreads(session) {
-  try {
-    const threadsRes = await session.customRequest("threads");
-    return { success: true, threads: threadsRes.threads || [] };
-  } catch (e) {
-    logger.error(LOG5, `list_threads failed: ${e.message}`);
-    return { success: false, errorMessage: `list_threads failed: ${e.message}` };
-  }
-}
-async function switchThread(session, threadId) {
-  try {
-    setCurrentThreadId(threadId, session.id);
-    return { success: true, threadId };
-  } catch (e) {
-    logger.error(LOG5, `switch_thread failed: ${e.message}`);
-    return { success: false, errorMessage: `switch_thread failed: ${e.message}` };
-  }
-}
-async function continueExecution(session) {
-  const result = await executeNavigationCommand(
-    session,
-    "continue",
-    "continue",
-    CONTINUE_TIMEOUT_MS
-  );
-  if (result.success && result.stopReason) {
-    const crashReasons = ["exception", "signal", "breakpoint"];
-    if (crashReasons.includes(result.stopReason)) {
-      logger.info(LOG5, `Program stopped: ${result.stopReason}`);
-      try {
-        const stackTrace = await getStackTrace(session);
-        result.crashInfo = {
-          reason: result.stopReason,
-          description: result.description || "Unknown error",
-          stackTrace
-        };
-      } catch (e) {
-        logger.warn(LOG5, `Failed to get crash info: ${e?.message || "Unknown error"}`);
-      }
-    }
-  }
-  return result;
-}
-async function nextStep(session) {
-  return executeNavigationCommand(session, "next", "next", STEP_TIMEOUT_MS);
-}
-async function stepIn(session, withScope = true) {
-  const result = await executeNavigationCommand(
-    session,
-    "stepIn",
-    "step_in",
-    STEP_TIMEOUT_MS
-  );
-  if (withScope && result.success) {
-    const scopePreview = await fetchScopePreview(session);
-    if (scopePreview) {
-      result.scopePreview = scopePreview;
-    }
-  }
-  return result;
-}
-async function stepOut(session) {
-  return executeNavigationCommand(
-    session,
-    "stepOut",
-    "step_out",
-    STEP_TIMEOUT_MS
-  );
-}
-async function jumpToLine(session, params) {
-  const operationName = "jump";
-  logger.info(LOG5, `Jump to line ${params.line}`);
-  try {
-    const frameId = params.frameId ?? getCurrentTopFrameId();
-    if (frameId === void 0) {
-      return { success: false, errorMessage: "No frame ID available for jump" };
-    }
-    const targets = await session.customRequest("gotoTargets", {
-      source: { path: "" },
-      line: params.line
-    });
-    if (!targets.targets || targets.targets.length === 0) {
-      return {
-        success: false,
-        errorMessage: `No goto target found for line ${params.line}`
-      };
-    }
-    const threadId = await getThreadId2(session);
-    const stopPromise = waitForStopEvent(STEP_TIMEOUT_MS);
-    await session.customRequest("goto", {
-      threadId,
-      targetId: targets.targets[0].id
-    });
-    const { stopped, reason } = await stopPromise;
-    if (!stopped && (reason === "terminated" || reason === "exited")) {
-      return { success: true, stopReason: reason, errorMessage: `Program ${reason}` };
-    }
-    return await buildNavigationResult(session, stopped ? "jump" : "running");
-  } catch (e) {
-    logger.error(LOG5, `${operationName} failed: ${e.message}`);
-    return { success: false, errorMessage: `${operationName}: ${e.message}` };
-  }
-}
-
-// src/debug/hardware.ts
-init_logging();
-init_events();
-init_errors();
-var LOG6 = "Hardware";
-async function getRegisters(session, frameId) {
-  const fId = frameId ?? getCurrentTopFrameId(session.id);
-  if (fId === void 0) {
-    throw new OperationError("get_registers", "No frame ID available for registers");
-  }
-  try {
-    const scopesRes = await session.customRequest("scopes", { frameId: fId });
-    const regScope = scopesRes.scopes.find(
-      (s) => s.name.toLowerCase().includes("register") || s.name.toLowerCase().includes("cpu")
-    );
-    if (!regScope) {
-      throw new OperationError("get_registers", "Registers scope not found");
-    }
-    const varsRes = await session.customRequest("variables", {
-      variablesReference: regScope.variablesReference
-    });
-    return { success: true, registers: varsRes.variables };
-  } catch (e) {
-    if (e instanceof OperationError)
-      throw e;
-    logger.error(LOG6, "get_registers.failed", { sessionId: session.id, error: e.message });
-    throw new OperationError("get_registers", e.message, e);
-  }
-}
-async function readMemory(session, memoryReference, offset = 0, count = 256) {
-  try {
-    const res = await session.customRequest("readMemory", { memoryReference, offset, count });
-    return { success: true, ...res };
-  } catch (e) {
-    logger.error(LOG6, "read_memory.failed", { memoryReference, error: e.message });
-    throw new OperationError("read_memory", e.message, e);
-  }
-}
-async function disassemble(session, options) {
-  const {
-    memoryReference,
-    offset = 0,
-    instructionOffset = 0,
-    instructionCount = 50,
-    resolveSymbols = true
-  } = options;
-  try {
-    const res = await session.customRequest("disassemble", {
-      memoryReference,
-      offset,
-      instructionOffset,
-      instructionCount,
-      resolveSymbols
-    });
-    return { success: true, ...res };
-  } catch (e) {
-    logger.error(LOG6, "disassemble.failed", { memoryReference, error: e.message });
-    throw new OperationError("disassemble", e.message, e);
-  }
-}
-
-// src/debug/DebugController.ts
-init_inspection();
-init_events();
-var LOG7 = "Controller";
-var DebugController = class {
-  tempBreakpoints = /* @__PURE__ */ new Map();
-  operationMap;
-  constructor() {
-    this.operationMap = this.buildOperationMap();
-    onDapStopEvent((_sessionId, body) => {
-      if (body?.reason === "breakpoint" && this.tempBreakpoints.size > 0) {
-        this.handleTempBreakpointHit();
-      }
-    });
-  }
-  /**
-   * @brief Build the operation map.
-   *
-   * Maps operation names to controller methods.
-   *
-   * @return Operation map object.
-   *
-   * [Satisfies $ARCH-2]
-   */
-  buildOperationMap() {
-    return {
-      // Session Management $DD-1.1
-      launch: (args) => launchSession(args || {}),
-      restart: () => restartSession(),
-      quit: () => quitSession(),
-      // Execution Control $DD-1.2
-      continue: () => continueExecution(ensureActiveSession("continue")),
-      next: () => nextStep(ensureActiveSession("next")),
-      step_in: () => stepIn(ensureActiveSession("step_in")),
-      step_out: () => stepOut(ensureActiveSession("step_out")),
-      jump: (args) => jumpToLine(ensureActiveSession("jump"), args),
-      until: (args) => this.executeUntil(args),
-      // Breakpoint Management $DD-1.3
-      set_breakpoint: (args) => setBreakpoint(args),
-      set_breakpoints: (args) => setBreakpoints(args),
-      // AIVS-005: Batch operation
-      set_temp_breakpoint: (args) => this.setTempBreakpointTracked(args),
-      remove_breakpoint: (args) => removeBreakpointByLocation(args),
-      remove_all_breakpoints_in_file: (args) => removeAllBreakpointsInFile(args.filePath),
-      disable_breakpoint: (args) => toggleBreakpoint({ ...args, enable: false }),
-      enable_breakpoint: (args) => toggleBreakpoint({ ...args, enable: true }),
-      ignore_breakpoint: (args) => ignoreBreakpoint(args),
-      set_breakpoint_condition: (args) => setBreakpointCondition(args),
-      get_active_breakpoints: () => getActiveBreakpoints(),
-      get_data_breakpoint_info: (args) => getDataBreakpointInfo(ensureActiveSession("get_data_breakpoint_info"), args),
-      set_data_breakpoint: (args) => setDataBreakpoint(args),
-      watch: (args) => this.watchVariable(args),
-      // Hardware & Thread Management (Phase 3)
-      list_threads: () => listThreads(ensureActiveSession("list_threads")),
-      switch_thread: (args) => switchThread(ensureActiveSession("switch_thread"), args.threadId),
-      get_registers: (args) => getRegisters(ensureActiveSession("get_registers"), args?.frameId),
-      read_memory: (args) => readMemory(ensureActiveSession("read_memory"), args.memoryReference, args.offset, args.count),
-      disassemble: (args) => disassemble(ensureActiveSession("disassemble"), args),
-      // Stack & Code Inspection $DD-1.4
-      stack_trace: () => getStackTrace(ensureActiveSession("stack_trace")),
-      list_source: (args) => listSource(ensureActiveSession("list_source"), args || {}),
-      up: () => frameUp(ensureActiveSession("up")),
-      down: () => frameDown(ensureActiveSession("down")),
-      goto_frame: (args) => gotoFrame(ensureActiveSession("goto_frame"), args),
-      get_source: (args) => getSource(ensureActiveSession("get_source"), args),
-      // State Inspection & Evaluation $DD-1.4
-      // Default scopeFilter to "Locals" only so ai_vars shows local vars distinct from args.
-      // Callers may override by passing explicit scopeFilter in params.
-      get_stack_frame_variables: (args) => getStackFrameVariables(
-        ensureActiveSession("get_stack_frame_variables"),
-        { scopeFilter: ["Locals", "Local"], ...args }
-      ),
-      list_all_locals: (args) => listAllLocals(ensureActiveSession("list_all_locals"), args?.frameId),
-      get_args: (args) => this.getArgs(args || {}),
-      evaluate: (args) => evaluate(ensureActiveSession("evaluate"), args),
-      pretty_print: (args) => prettyPrint(ensureActiveSession("pretty_print"), args),
-      whatis: (args) => whatis(ensureActiveSession("whatis"), args),
-      execute_statement: (args) => executeStatement(ensureActiveSession("execute_statement"), args),
-      // Scope Preview (PROXY-004)
-      get_scope_preview: () => this.getScopePreview(),
-      // Status $DD-1.5
-      get_last_stop_info: () => this.getLastStopInfo()
-    };
-  }
-  /**
-   * $DD DD-1.6
-   *
-   * @brief Execute an operation by name.
-   *
-   * Dispatches the request to the appropriate DAP operation handler.
-   *
-   * @param [in]  operation   Name of the operation to execute.
-   * @param [in]  params      Optional parameters for the operation.
-   *
-   * @return Promise resolving to the operation result.
-   *
-   * @throws Error if the operation is unknown.
-   *
-   * $ARCH ARCH-2
-   */
-  async executeOperation(operation, params) {
-    const fn = this.operationMap[operation];
-    if (!fn) {
-      throw new Error(`Unknown operation: '${operation}'`);
-    }
-    logger.info(LOG7, `Executing: ${operation}`, params);
-    const result = await fn(params);
-    logger.info(LOG7, `Result: ${operation}`, {
-      success: result?.success,
-      stopReason: result?.stopReason
-    });
-    return result;
-  }
-  /**
-   * @brief Get list of supported operations.
-   *
-   * @return Array of operation names.
-   */
-  getOperations() {
-    return Object.keys(this.operationMap);
-  }
-  /**
-   * @brief Execute a batch of operations.
-   *
-   * @param operations Array of { operation, params } objects.
-   * @param parallel   If true, executes them concurrently using Promise.all().
-   * @return Array of results mapping to the input operations.
-   */
-  async executeBatchOperations(operations, parallel = false) {
-    logger.info(LOG7, `Executing batch of ${operations.length} operations (parallel: ${parallel})`);
-    for (const op of operations) {
-      if (!this.operationMap[op.operation]) {
-        throw new Error(`Unknown operation in batch: '${op.operation}'`);
-      }
-      const validationResult = validateOperationArgs(op.operation, op.params);
-      if (!validationResult.isValid) {
-        throw new Error(`Validation failed for '${op.operation}': ${validationResult.message}`);
-      }
-      op.params = validationResult.params;
-    }
-    if (parallel) {
-      return Promise.all(
-        operations.map(async (op) => {
-          try {
-            const res = await this.operationMap[op.operation](op.params);
-            return { operation: op.operation, success: true, data: res };
-          } catch (e) {
-            return { operation: op.operation, success: false, error: e.message };
-          }
-        })
-      );
+    } else if (str[i] === '"') {
+      throw new Error("Not a valid string");
     } else {
-      const results = [];
-      for (const op of operations) {
-        try {
-          const res = await this.operationMap[op.operation](op.params);
-          results.push({ operation: op.operation, success: true, data: res });
-        } catch (e) {
-          results.push({ operation: op.operation, success: false, error: e.message });
+      bufIndex += ret.write(str[i], bufIndex);
+    }
+  }
+  return ret.toString("utf8", 0, bufIndex);
+}
+var MINode = class _MINode {
+  token;
+  outOfBandRecord;
+  resultRecords;
+  /** Original raw output string. */
+  output = "";
+  /**
+   * Extracts a value from a nested MI result list using a path.
+   * 
+   * @param start - Starting point (usually results array)
+   * @param path - Dot-separated path (e.g., 'frame.addr')
+   * @returns The value at path or undefined
+   */
+  static valueOf(start, path3) {
+    if (!start) {
+      return void 0;
+    }
+    const pathRegex = /^\.?([a-zA-Z_-][a-zA-Z0-9_-]*)/;
+    const indexRegex = /^\[(\d+)\](?:$|\.)/;
+    path3 = path3.trim();
+    if (!path3) {
+      return start;
+    }
+    let current = start;
+    do {
+      let target = pathRegex.exec(path3);
+      if (target) {
+        path3 = path3.substr(target[0].length);
+        if (current.length && typeof current !== "string") {
+          const found = [];
+          for (const element of current) {
+            if (element[0] === target[1]) {
+              found.push(element[1]);
+            }
+          }
+          if (found.length > 1) {
+            current = found;
+          } else if (found.length === 1) {
+            current = found[0];
+          } else {
+            return void 0;
+          }
+        } else {
+          return void 0;
+        }
+      } else if (path3[0] === "@") {
+        current = [current];
+        path3 = path3.substr(1);
+      } else {
+        target = indexRegex.exec(path3);
+        if (target) {
+          path3 = path3.substr(target[0].length);
+          const i = parseInt(target[1]);
+          if (current.length && typeof current !== "string" && i >= 0 && i < current.length) {
+            current = current[i];
+          } else if (i !== 0) {
+            return void 0;
+          }
+        } else {
+          return void 0;
         }
       }
+      path3 = path3.trim();
+    } while (path3);
+    return current;
+  }
+  constructor(token, info, result) {
+    this.token = token;
+    this.outOfBandRecord = info;
+    this.resultRecords = result;
+  }
+  record(path3) {
+    if (!this.outOfBandRecord || this.outOfBandRecord.length === 0) {
+      return void 0;
+    }
+    const first = this.outOfBandRecord[0];
+    if (first.isStream) {
+      return void 0;
+    }
+    return _MINode.valueOf(first.output, path3);
+  }
+  result(path3) {
+    if (!this.resultRecords) {
+      return void 0;
+    }
+    return _MINode.valueOf(this.resultRecords.results, path3);
+  }
+};
+var outOfBandRecordRegex = /^(?:(\d*|undefined)([*+=])|([~@&]))/;
+var resultRecordRegex = /^(\d*)\^(done|running|connected|error|exit)/;
+var newlineRegex = /^\r\n?/;
+var variableRegex = /^([a-zA-Z_-][a-zA-Z0-9_-]*)/;
+var asyncClassRegex = /^(.*?),/;
+function parseMI(output) {
+  let token;
+  const outOfBandRecord = [];
+  let resultRecords;
+  const asyncRecordType = {
+    "*": "exec",
+    "+": "status",
+    "=": "notify"
+  };
+  const streamRecordType = {
+    "~": "console",
+    "@": "target",
+    "&": "log"
+  };
+  const parseCString = () => {
+    if (output[0] !== '"') {
+      return "";
+    }
+    let stringEnd = 1;
+    let inString = true;
+    let remaining = output.substr(1);
+    let escaped = false;
+    while (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (remaining[0] === "\\") {
+        escaped = true;
+      } else if (remaining[0] === '"') {
+        inString = false;
+      }
+      remaining = remaining.substr(1);
+      stringEnd++;
+    }
+    let str;
+    try {
+      str = parseString(output.substr(0, stringEnd));
+    } catch (e) {
+      str = output.substr(0, stringEnd);
+    }
+    output = output.substr(stringEnd);
+    return str;
+  };
+  function parseTupleOrList() {
+    if (output[0] !== "{" && output[0] !== "[") {
+      return void 0;
+    }
+    const oldContent = output;
+    const canBeValueList = output[0] === "[";
+    output = output.substr(1);
+    if (output[0] === "}" || output[0] === "]") {
+      output = output.substr(1);
+      return [];
+    }
+    if (canBeValueList) {
+      let value = parseValue();
+      if (value) {
+        const values = [];
+        values.push(value);
+        const remaining = output;
+        while ((value = parseCommaValue()) !== void 0) {
+          values.push(value);
+        }
+        output = output.substr(1);
+        return values;
+      }
+    }
+    let result = parseResult();
+    if (result) {
+      const results = [];
+      results.push(result);
+      while (result = parseCommaResult()) {
+        results.push(result);
+      }
+      output = output.substr(1);
       return results;
     }
+    output = (canBeValueList ? "[" : "{") + output;
+    return void 0;
   }
-  /**************************************************************************
-   * Internal Helpers
-   **************************************************************************/
-  async setTempBreakpointTracked(params) {
-    const result = await setTempBreakpoint(params);
-    if (result.success) {
-      const key = this.locationKey(params.location);
-      const uri = vscode6.Uri.file(params.location.path);
-      const line = params.location.line - 1;
-      const bp = vscode6.debug.breakpoints.find(
-        (b) => b instanceof vscode6.SourceBreakpoint && b.location.uri.fsPath === uri.fsPath && b.location.range.start.line === line
-      );
-      if (bp) {
-        this.tempBreakpoints.set(key, bp);
-        logger.debug(LOG7, `Registered temp breakpoint: ${key}`);
-      }
-    }
-    return result;
-  }
-  async handleTempBreakpointHit() {
-    try {
-      const session = vscode6.debug.activeDebugSession;
-      if (!session)
-        return;
-      const trace = await getStackTrace(session);
-      if (!trace.success || trace.frames.length === 0)
-        return;
-      const top = trace.frames[0];
-      const key = this.locationKey({ path: top.sourcePath, line: top.line });
-      const bp = this.tempBreakpoints.get(key);
-      if (bp) {
-        logger.debug(LOG7, `Removing temp breakpoint: ${key}`);
-        vscode6.debug.removeBreakpoints([bp]);
-        this.tempBreakpoints.delete(key);
-      }
-    } catch (e) {
-      logger.warn(LOG7, `Error handling temp breakpoint: ${e.message}`);
+  ;
+  function parseValue() {
+    if (output[0] === '"') {
+      return parseCString();
+    } else if (output[0] === "{" || output[0] === "[") {
+      return parseTupleOrList();
+    } else {
+      return void 0;
     }
   }
-  async executeUntil(params) {
-    const session = ensureActiveSession("until");
-    const trace = await getStackTrace(session);
-    if (!trace.success || trace.frames.length === 0) {
-      return {
-        success: false,
-        errorMessage: "Cannot get current frame for 'until'"
-      };
+  ;
+  function parseResult() {
+    const variableMatch = variableRegex.exec(output);
+    if (!variableMatch) {
+      return void 0;
     }
-    const currentFile = trace.frames[0].sourcePath;
-    if (!currentFile) {
-      return {
-        success: false,
-        errorMessage: "No source path for current frame"
-      };
-    }
-    const tempResult = await this.setTempBreakpointTracked({
-      location: { path: currentFile, line: params.line }
-    });
-    if (!tempResult.success) {
-      return {
-        success: false,
-        errorMessage: `Failed to set temp breakpoint: ${tempResult.errorMessage}`
-      };
-    }
-    return continueExecution(session);
+    output = output.substr(variableMatch[0].length + 1);
+    const variable = variableMatch[1];
+    return [variable, parseValue()];
   }
-  async getArgs(params) {
-    const session = ensureActiveSession("get_args");
-    const result = await getStackFrameVariables(session, {
-      frameId: params.frameId,
-      scopeFilter: params.scopeFilter || ["Arguments", "Args", "Parameters"]
-    });
-    if (result.success && result.scopes.every((s) => s.variables.length === 0)) {
-      return getStackFrameVariables(session, {
-        frameId: params.frameId,
-        scopeFilter: ["Locals", "Local"]
-      });
+  ;
+  function parseCommaValue() {
+    if (output[0] !== ",") {
+      return void 0;
     }
-    return result;
+    output = output.substr(1);
+    return parseValue();
   }
-  async watchVariable(params) {
-    const session = ensureActiveSession("watch");
-    const accessType = params.accessType || "write";
-    const frameId = getCurrentFrameId() ?? getCurrentTopFrameId();
-    if (frameId === void 0) {
-      return { success: false, errorMessage: "No frame available. Ensure debugger is stopped at a breakpoint." };
+  ;
+  function parseCommaResult() {
+    if (output[0] !== ",") {
+      return void 0;
     }
-    let scopeRef;
-    try {
-      const scopesRes = await session.customRequest("scopes", { frameId });
-      for (const scope of scopesRes.scopes || []) {
-        if (scope.expensive)
-          continue;
-        const varsRes = await session.customRequest("variables", {
-          variablesReference: scope.variablesReference
-        });
-        const found = (varsRes.variables || []).find((v) => v.name === params.name);
-        if (found) {
-          scopeRef = scope.variablesReference;
-          break;
-        }
-      }
-    } catch (e) {
-      return { success: false, errorMessage: `Cannot get variables: ${e.message}` };
-    }
-    if (scopeRef === void 0) {
-      return {
-        success: false,
-        errorMessage: `Variable '${params.name}' not found in current scope. Ensure the debugger is stopped at a frame where it is visible.`
-      };
-    }
-    const infoResult = await getDataBreakpointInfo(session, {
-      name: params.name,
-      variablesReference: scopeRef
-    });
-    if (!infoResult.success || !infoResult.dataId) {
-      return {
-        success: false,
-        errorMessage: infoResult.errorMessage || `Watchpoint not supported for '${params.name}'. Check that your debug adapter supports data breakpoints.`
-      };
-    }
-    try {
-      const bpResult = await setDataBreakpoint({
-        dataId: infoResult.dataId,
-        accessType,
-        condition: params.condition
-      });
-      if (bpResult.success) {
-        return { ...bpResult, dataId: infoResult.dataId, accessType };
-      }
-    } catch {
-    }
-    const gdbCmd = accessType === "read" ? `rwatch ${params.name}` : accessType === "readWrite" ? `awatch ${params.name}` : `watch ${params.name}`;
-    try {
-      const res = await session.customRequest("evaluate", {
-        expression: gdbCmd,
-        frameId,
-        context: "repl"
-      });
-      if (res.result && !res.result.toLowerCase().includes("error")) {
-        return { success: true, method: "gdb", command: gdbCmd, result: res.result, accessType };
-      }
-      return { success: false, errorMessage: res.result || `GDB '${gdbCmd}' returned no result` };
-    } catch (e) {
-      return { success: false, errorMessage: `Failed to set watchpoint: ${e.message}` };
-    }
+    output = output.substr(1);
+    return parseResult();
   }
-  async getLastStopInfo() {
-    const body = getLastStopEventBody();
-    const sessionId = getLastStopSessionId();
-    if (!body || !sessionId) {
-      return { success: false, errorMessage: "No stop event recorded" };
+  ;
+  let match;
+  while (match = outOfBandRecordRegex.exec(output)) {
+    output = output.substr(match[0].length);
+    if (match[1] && token === void 0 && match[1] !== "undefined") {
+      token = parseInt(match[1]);
     }
-    return { success: true, sessionId, stopInfo: body };
-  }
-  async getScopePreview() {
-    const session = ensureActiveSession("get_scope_preview");
-    const scopePreview = await fetchScopePreview(session);
-    if (!scopePreview) {
-      return {
-        success: false,
-        errorMessage: "Could not fetch scope preview. Ensure debugger is stopped."
-      };
-    }
-    return {
-      success: true,
-      scopePreview,
-      metadata: {
-        parametersCount: scopePreview.parameters.length,
-        localsCount: scopePreview.locals.length,
-        uninitializedCount: scopePreview.uninitialized.length
-      }
-    };
-  }
-  locationKey(loc) {
-    try {
-      return `${vscode6.Uri.file(loc.path).toString()}:${loc.line}`;
-    } catch {
-      return `${loc.path}:${loc.line}`;
-    }
-  }
-};
-var debugController = new DebugController();
-
-// src/server/router.ts
-init_session();
-init_events();
-
-// src/debug/ContextAggregator.ts
-init_logging();
-init_inspection();
-init_events();
-var LOG8 = "ContextAggregator";
-var DEFAULT_DEPTH = 10;
-var DEFAULT_SOURCE_LINES = 10;
-var MAX_VARIABLE_VALUE_LENGTH = 200;
-var MAX_VARIABLES_PER_SCOPE = 50;
-function shouldIncludeSection(section, options) {
-  if (options.exclude?.includes(section)) {
-    return false;
-  }
-  if (options.include?.length && !options.include.includes(section)) {
-    return false;
-  }
-  return true;
-}
-function compressValue(value) {
-  if (!value || value.length <= MAX_VARIABLE_VALUE_LENGTH) {
-    return value;
-  }
-  return value.substring(0, MAX_VARIABLE_VALUE_LENGTH - 3) + "...";
-}
-function compressVariables(variables, maxVars = MAX_VARIABLES_PER_SCOPE) {
-  if (!variables)
-    return [];
-  const limited = variables.slice(0, maxVars);
-  return limited.map((v) => ({
-    ...v,
-    value: compressValue(v.value || ""),
-    type: v.type?.substring(0, 50) || v.type
-  }));
-}
-async function fetchSource(session, location, lines) {
-  try {
-    if (!location.file || !location.line) {
-      return null;
-    }
-    const { listSource: listSource2 } = await Promise.resolve().then(() => (init_inspection(), inspection_exports));
-    const result = await listSource2(session, {
-      linesAround: lines
-    });
-    if (!result.success || !result.sourceCode) {
-      return null;
-    }
-    return {
-      window: `lines ${Math.max(1, location.line - lines)}-${location.line + lines}`,
-      code: result.sourceCode,
-      highlights: [
-        { line: location.line, reason: "current" }
-      ]
-    };
-  } catch (e) {
-    logger.warn(LOG8, `Failed to fetch source: ${e.message}`);
-    return null;
-  }
-}
-async function fetchThreads(session) {
-  try {
-    const currentThreadId = getCurrentThreadId(session.id);
-    const response = await session.customRequest("threads");
-    const threads = response.threads || [];
-    return threads.map((t) => ({
-      id: t.id,
-      name: t.name || `Thread ${t.id}`,
-      state: "stopped",
-      current: t.id === currentThreadId
-    }));
-  } catch (e) {
-    logger.warn(LOG8, `Failed to fetch threads: ${e.message}`);
-    return [];
-  }
-}
-async function aggregateContext(session, options = {}) {
-  const startTime = Date.now();
-  let location = getLastLocation(session.id);
-  if (!location) {
-    logger.debug(LOG8, "Location not in state, fetching from stack trace");
-    const threadId = getCurrentThreadId(session.id) || 1;
-    try {
-      const stackResponse = await session.customRequest("stackTrace", {
-        threadId,
-        startFrame: 0,
-        levels: 1
-      });
-      if (stackResponse.stackFrames?.length > 0) {
-        const frame = stackResponse.stackFrames[0];
-        location = {
-          file: frame.source?.path || "unknown",
-          line: frame.line || 0,
-          function: frame.name
-        };
-      }
-    } catch (e) {
-      logger.warn(LOG8, `Failed to fetch location: ${e.message}`);
-      location = { file: "unknown", line: 0 };
-    }
-  }
-  const depth = options.depth ?? DEFAULT_DEPTH;
-  const sourceLines = options.sourceLines ?? DEFAULT_SOURCE_LINES;
-  const maxVariables = options.maxVariables ?? MAX_VARIABLES_PER_SCOPE;
-  const [stackResult, variablesResult, sourceResult, threadsResult] = await Promise.all([
-    // Stack trace
-    shouldIncludeSection("stack", options) ? (async () => {
-      try {
-        const stack = await getStackTrace(session);
-        if (!stack.success)
-          return [];
-        const frames = stack.frames || [];
-        const limited = frames.slice(0, depth);
-        return limited.map((f) => ({
-          id: f.id,
-          name: f.name,
-          sourcePath: f.sourcePath?.substring(0, 200) || f.sourcePath,
-          line: f.line,
-          column: f.column
-        }));
-      } catch (e) {
-        logger.warn(LOG8, `Stack fetch failed: ${e.message}`);
-        return [];
-      }
-    })() : Promise.resolve([]),
-    // Variables
-    shouldIncludeSection("variables", options) ? (async () => {
-      try {
-        const { getStackFrameVariables: getStackFrameVariables2 } = await Promise.resolve().then(() => (init_inspection(), inspection_exports));
-        const frameId = getCurrentFrameId(session.id) ?? 0;
-        const result = await getStackFrameVariables2(session, { frameId });
-        if (!result.success || !result.scopes)
-          return [];
-        return result.scopes.map((scope) => ({
-          scopeName: scope.name || "Unknown",
-          locals: compressVariables(scope.variables || [], maxVariables)
-        }));
-      } catch (e) {
-        logger.warn(LOG8, `Variables fetch failed: ${e.message}`);
-        return [];
-      }
-    })() : Promise.resolve([]),
-    // Source code
-    shouldIncludeSection("source", options) ? fetchSource(session, location, sourceLines) : Promise.resolve(null),
-    // Threads
-    shouldIncludeSection("threads", options) ? fetchThreads(session) : Promise.resolve([])
-  ]);
-  const latencyMs = Date.now() - startTime;
-  const compressionApplied = true;
-  return {
-    location,
-    source: sourceResult,
-    stack: stackResult,
-    variables: variablesResult,
-    threads: threadsResult,
-    metadata: {
-      cached: false,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      latencyMs,
-      compressionApplied
-    }
-  };
-}
-
-// src/debug/WatchSuggestService.ts
-var vscode7 = __toESM(require("vscode"));
-init_logging();
-init_inspection();
-init_events();
-
-// src/debug/VariableChangeTracker.ts
-init_logging();
-var LOG9 = "VariableChangeTracker";
-var DEFAULT_MAX_STEPS = 50;
-var DEFAULT_CHANGE_WINDOW = 5;
-var LRUCache = class {
-  max;
-  map;
-  constructor(max = DEFAULT_MAX_STEPS) {
-    this.max = max;
-    this.map = /* @__PURE__ */ new Map();
-  }
-  get(key) {
-    const value = this.map.get(key);
-    if (value !== void 0) {
-      this.map.delete(key);
-      this.map.set(key, value);
-    }
-    return value;
-  }
-  set(key, value) {
-    if (this.map.has(key)) {
-      this.map.delete(key);
-    } else if (this.map.size >= this.max) {
-      const firstKey = this.map.keys().next().value;
-      if (firstKey !== void 0) {
-        this.map.delete(firstKey);
-      }
-    }
-    this.map.set(key, value);
-  }
-  has(key) {
-    return this.map.has(key);
-  }
-  get size() {
-    return this.map.size;
-  }
-  get entries() {
-    return Array.from(this.map.entries());
-  }
-};
-var VariableChangeTracker = class {
-  // sessionId -> varName -> count
-  constructor(maxSteps = DEFAULT_MAX_STEPS) {
-    this.maxSteps = maxSteps;
-    this.history = new LRUCache(100);
-    this.stepCounters = /* @__PURE__ */ new Map();
-    this.changeCounts = /* @__PURE__ */ new Map();
-  }
-  history;
-  // sessionId -> snapshots
-  stepCounters;
-  // sessionId -> step counter
-  changeCounts;
-  /**
-   * @brief Track variables at current step.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   * @param [in]  variables   Current variables.
-   *
-   * @return Number of changes detected.
-   */
-  trackVariables(sessionId, variables) {
-    const stepNumber = this.stepCounters.get(sessionId) ?? 0;
-    const snapshot = {
-      timestamp: Date.now(),
-      stepNumber,
-      variables: new Map(variables.map((v) => [v.name, { name: v.name, value: v.value || "", type: v.type || "" }]))
-    };
-    let sessionHistory = this.history.get(sessionId);
-    if (!sessionHistory) {
-      sessionHistory = [];
-      this.history.set(sessionId, sessionHistory);
-    }
-    let changeCount = 0;
-    if (sessionHistory.length > 0) {
-      const prevSnapshot = sessionHistory[sessionHistory.length - 1];
-      changeCount = this.detectChanges(sessionId, prevSnapshot, snapshot);
-    }
-    sessionHistory.push(snapshot);
-    if (sessionHistory.length > this.maxSteps) {
-      sessionHistory.shift();
-    }
-    this.stepCounters.set(sessionId, stepNumber + 1);
-    logger.debug(LOG9, `Tracked ${variables.length} variables, ${changeCount} changes at step ${stepNumber}`);
-    return changeCount;
-  }
-  /**
-   * @brief Get variables that changed in last N steps.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   * @param [in]  lastNSteps  Number of steps to look back (default: 5).
-   *
-   * @return Array of variable changes.
-   */
-  getChangedVariables(sessionId, lastNSteps = DEFAULT_CHANGE_WINDOW) {
-    const sessionHistory = this.history.get(sessionId);
-    if (!sessionHistory || sessionHistory.length < 2) {
-      return [];
-    }
-    const changes = /* @__PURE__ */ new Map();
-    const currentStep = this.stepCounters.get(sessionId) ?? 0;
-    const changeCounts = this.changeCounts.get(sessionId) || /* @__PURE__ */ new Map();
-    const startIndex = Math.max(0, sessionHistory.length - lastNSteps - 1);
-    for (let i = startIndex; i < sessionHistory.length - 1; i++) {
-      const prev = sessionHistory[i];
-      const curr = sessionHistory[i + 1];
-      for (const [name, currState] of curr.variables) {
-        const prevState = prev.variables.get(name);
-        if (!prevState)
-          continue;
-        if (prevState.value !== currState.value) {
-          const stepsAgo = currentStep - curr.stepNumber;
-          if (!changes.has(name)) {
-            changes.set(name, {
-              name,
-              oldValue: prevState.value,
-              newValue: currState.value,
-              type: currState.type,
-              stepsAgo,
-              changeCount: changeCounts.get(name) ?? 1,
-              firstChangeStep: curr.stepNumber
-            });
-          } else {
-            const change = changes.get(name);
-            change.newValue = currState.value;
-            change.stepsAgo = stepsAgo;
-          }
-        }
-      }
-    }
-    return Array.from(changes.values()).sort((a, b) => b.changeCount - a.changeCount);
-  }
-  /**
-   * @brief Get history of a specific variable.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   * @param [in]  varName     Variable name.
-   *
-   * @return Array of history entries.
-   */
-  getVariableHistory(sessionId, varName) {
-    const sessionHistory = this.history.get(sessionId);
-    if (!sessionHistory) {
-      return [];
-    }
-    const history = [];
-    for (const snapshot of sessionHistory) {
-      const state = snapshot.variables.get(varName);
-      if (state) {
-        history.push({
-          step: snapshot.stepNumber,
-          value: state.value,
-          timestamp: snapshot.timestamp
-        });
-      }
-    }
-    return history;
-  }
-  /**
-   * @brief Get most frequently changed variables.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   * @param [in]  topN        Number of top variables to return.
-   *
-   * @return Array of variable changes sorted by change count.
-   */
-  getMostChangedVariables(sessionId, topN = 5) {
-    const changes = this.getChangedVariables(sessionId, this.maxSteps);
-    return changes.slice(0, topN);
-  }
-  /**
-   * @brief Clear tracking data for a session.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   */
-  clear(sessionId) {
-    this.history.set(sessionId, []);
-    this.stepCounters.delete(sessionId);
-    this.changeCounts.delete(sessionId);
-  }
-  /**
-   * @brief Get current step number for session.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   *
-   * @return Current step number.
-   */
-  getCurrentStep(sessionId) {
-    return this.stepCounters.get(sessionId) ?? 0;
-  }
-  // ==========================================================================
-  // Private Helpers
-  // ==========================================================================
-  /**
-   * @brief Detect changes between two snapshots.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   * @param [in]  prev        Previous snapshot.
-   * @param [in]  curr        Current snapshot.
-   *
-   * @return Number of changes detected.
-   */
-  detectChanges(sessionId, prev, curr) {
-    let changeCount = 0;
-    const sessionChangeCounts = this.changeCounts.get(sessionId) || /* @__PURE__ */ new Map();
-    for (const [name, currState] of curr.variables) {
-      const prevState = prev.variables.get(name);
-      if (!prevState)
-        continue;
-      if (prevState.value !== currState.value) {
-        changeCount++;
-        const count = sessionChangeCounts.get(name) ?? 0;
-        sessionChangeCounts.set(name, count + 1);
-      }
-    }
-    if (curr.stepNumber % 10 === 0) {
-      for (const [name, count] of sessionChangeCounts) {
-        if (count > 0) {
-          sessionChangeCounts.set(name, count - 1);
-        }
-      }
-    }
-    this.changeCounts.set(sessionId, sessionChangeCounts);
-    return changeCount;
-  }
-};
-var variableChangeTracker = new VariableChangeTracker();
-
-// src/debug/BoundaryDetector.ts
-var TYPE_LIMITS = {
-  "char": 127,
-  "unsigned char": 255,
-  "short": 32767,
-  "unsigned short": 65535,
-  "int": 2147483647,
-  "unsigned int": 4294967295,
-  "long": 2147483647,
-  "unsigned long": 4294967295,
-  "long long": 9223372036854776e3,
-  "unsigned long long": 18446744073709552e3,
-  "float": 34028235e31,
-  "double": 17976931348623157e292
-};
-var HIGH_THRESHOLD = 0.95;
-var MEDIUM_THRESHOLD = 0.9;
-var LOW_THRESHOLD = 0.8;
-var CAPACITY_HIGH_THRESHOLD = 0.9;
-var CAPACITY_MEDIUM_THRESHOLD = 0.8;
-var BoundaryDetector = class {
-  /**
-   * @brief Detect overflow/underflow risks.
-   *
-   * @param [in]  variables   Array of variables to analyze.
-   *
-   * @return Array of overflow risks.
-   */
-  detectOverflow(variables) {
-    const risks = [];
-    for (const variable of variables) {
-      if (!variable.type || !variable.value)
-        continue;
-      const typeKey = variable.type.toLowerCase().replace(/\s+/g, " ");
-      const limit = TYPE_LIMITS[typeKey];
-      if (!limit)
-        continue;
-      const value = this.parseValue(variable.value);
-      if (value === null)
-        continue;
-      const ratio = Math.abs(value) / limit;
-      let riskLevel = null;
-      if (ratio >= HIGH_THRESHOLD) {
-        riskLevel = "high";
-      } else if (ratio >= MEDIUM_THRESHOLD) {
-        riskLevel = "medium";
-      } else if (ratio >= LOW_THRESHOLD) {
-        riskLevel = "low";
-      }
-      if (riskLevel) {
-        const isNegative = value < 0;
-        risks.push({
-          variable: variable.name,
-          riskType: isNegative ? "underflow" : "overflow",
-          riskLevel,
-          currentValue: variable.value,
-          threshold: limit.toString(),
-          expression: variable.name,
-          reason: `Value ${variable.value} is ${(ratio * 100).toFixed(1)}% of ${typeKey} max (${limit})`,
-          confidence: ratio
-        });
-      }
-    }
-    return risks;
-  }
-  /**
-   * @brief Detect null pointer dereference risks.
-   *
-   * @param [in]  sourceLine  Current source line.
-   * @param [in]  pointers    Pointer variables.
-   *
-   * @return Array of null pointer risks.
-   */
-  detectNullPointerRisk(sourceLine, pointers) {
-    const risks = [];
-    const derefPatterns = [
-      /\b(\w+)\s*->\s*\w+/g,
-      // ptr->member
-      /\*\s*(\w+)/g,
-      // *ptr
-      /\b(\w+)\s*\[\s*\w+\s*\]/g
-      // ptr[index]
-    ];
-    const dereferencedVars = /* @__PURE__ */ new Set();
-    for (const pattern of derefPatterns) {
-      let match;
-      while ((match = pattern.exec(sourceLine)) !== null) {
-        dereferencedVars.add(match[1]);
-      }
-    }
-    for (const pointer of pointers) {
-      if (!pointer.type?.includes("*") && !pointer.type?.toLowerCase().includes("ptr")) {
-        continue;
-      }
-      if (dereferencedVars.has(pointer.name)) {
-        const isNull = pointer.value === "0" || pointer.value === "0x0" || pointer.value === "NULL" || pointer.value === "nullptr" || !pointer.value || pointer.value.toLowerCase() === "null";
-        if (isNull) {
-          risks.push({
-            variable: pointer.name,
-            riskType: "null_pointer",
-            riskLevel: "high",
-            currentValue: pointer.value || "unknown",
-            expression: pointer.name,
-            reason: `Pointer '${pointer.name}' is null and dereferenced at current line`,
-            confidence: 1
-          });
-        } else {
-          const hasNullCheck = this.hasNullCheck(sourceLine, pointer.name);
-          if (!hasNullCheck) {
-            risks.push({
-              variable: pointer.name,
-              riskType: "null_pointer",
-              riskLevel: "medium",
-              currentValue: pointer.value || "unknown",
-              expression: pointer.name,
-              reason: `Pointer '${pointer.name}' dereferenced without null check`,
-              confidence: 0.7
-            });
-          }
-        }
-      }
-    }
-    return risks;
-  }
-  /**
-   * @brief Detect capacity/buffer overflow risks.
-   *
-   * @param [in]  variables   Array of variables to analyze.
-   *
-   * @return Array of capacity risks.
-   */
-  detectCapacityRisk(variables) {
-    const risks = [];
-    for (const variable of variables) {
-      const name = variable.name.toLowerCase();
-      if (!name.includes("size") && !name.includes("count") && !name.includes("capacity") && !name.includes("len") && !name.includes("buffer")) {
-        continue;
-      }
-      const value = this.parseValue(variable.value);
-      if (value === null || value <= 0)
-        continue;
-      const maxVar = variables.find(
-        (v) => v.name.toLowerCase().includes("max") && v.name.toLowerCase().includes(name.replace(/(size|count|capacity|len|buffer).*/, ""))
-      );
-      if (maxVar) {
-        const maxValue = this.parseValue(maxVar.value);
-        if (maxValue && maxValue > 0) {
-          const ratio = value / maxValue;
-          let riskLevel = null;
-          if (ratio >= CAPACITY_HIGH_THRESHOLD) {
-            riskLevel = "high";
-          } else if (ratio >= CAPACITY_MEDIUM_THRESHOLD) {
-            riskLevel = "medium";
-          }
-          if (riskLevel) {
-            risks.push({
-              variable: variable.name,
-              riskType: "capacity",
-              riskLevel,
-              currentValue: variable.value,
-              threshold: maxVar.value,
-              expression: `${variable.name} >= ${maxVar.name}`,
-              reason: `${variable.name} (${value}) is ${(ratio * 100).toFixed(1)}% of ${maxVar.name} (${maxValue})`,
-              confidence: ratio
-            });
-          }
-        }
+    if (match[2]) {
+      const classMatch = asyncClassRegex.exec(output);
+      let asyncClass = "";
+      if (classMatch) {
+        asyncClass = classMatch[1];
+        output = output.substr(asyncClass.length);
       } else {
-        if (variable.type?.includes("{")) {
-          const capacityMatch = variable.value.match(/capacity\s*=\s*(\d+)/i);
-          const sizeMatch = variable.value.match(/(size|count)\s*=\s*(\d+)/i);
-          if (capacityMatch && sizeMatch) {
-            const capacity = parseInt(capacityMatch[1], 10);
-            const size = parseInt(sizeMatch[2], 10);
-            if (capacity > 0) {
-              const ratio = size / capacity;
-              if (ratio >= CAPACITY_MEDIUM_THRESHOLD) {
-                risks.push({
-                  variable: variable.name,
-                  riskType: "capacity",
-                  riskLevel: ratio >= CAPACITY_HIGH_THRESHOLD ? "high" : "medium",
-                  currentValue: `${size}/${capacity}`,
-                  threshold: capacity.toString(),
-                  expression: `${variable.name}.size >= ${variable.name}.capacity`,
-                  reason: `Buffer ${variable.name} is ${(ratio * 100).toFixed(1)}% full (${size}/${capacity})`,
-                  confidence: ratio
-                });
-              }
+        asyncClass = output;
+        output = "";
+      }
+      const asyncRecord = {
+        isStream: false,
+        type: asyncRecordType[match[2]],
+        asyncClass,
+        output: []
+      };
+      let result;
+      while (result = parseCommaResult()) {
+        asyncRecord.output.push(result);
+      }
+      outOfBandRecord.push(asyncRecord);
+    } else if (match[3]) {
+      const streamRecord = {
+        isStream: true,
+        type: streamRecordType[match[3]],
+        content: parseCString()
+      };
+      outOfBandRecord.push(streamRecord);
+    }
+    output = output.replace(newlineRegex, "");
+  }
+  if (match = resultRecordRegex.exec(output)) {
+    output = output.substr(match[0].length);
+    if (match[1] && token === void 0) {
+      token = parseInt(match[1]);
+    }
+    resultRecords = {
+      resultClass: match[2],
+      results: []
+    };
+    let result;
+    while (result = parseCommaResult()) {
+      resultRecords.results.push(result);
+    }
+    output = output.replace(newlineRegex, "");
+  }
+  return new MINode(token, outOfBandRecord || [], resultRecords);
+}
+
+// src/protocol/mi2/MI2.ts
+var MI2 = class extends import_events.EventEmitter {
+  constructor(application, args) {
+    super();
+    this.application = application;
+    this.args = args;
+  }
+  process;
+  buffer = "";
+  token = 1;
+  pendingCommands = /* @__PURE__ */ new Map();
+  running = false;
+  /**
+   * Start GDB process
+   */
+  async start(cwd, initCommands = []) {
+    return new Promise((resolve, reject) => {
+      console.log("[MI2] Starting GDB:", this.application);
+      this.process = (0, import_child_process.spawn)(this.application, this.args, {
+        cwd,
+        env: { PATH: process.env.PATH }
+      });
+      this.process.stdout?.on("data", (data) => {
+        this.handleOutput(data.toString());
+      });
+      this.process.stderr?.on("data", (data) => {
+        console.error("[MI2] GDB stderr:", data.toString());
+      });
+      this.process.on("exit", (code) => {
+        console.log("[MI2] GDB exited with code:", code);
+        this.running = false;
+        this.emit("exited", code);
+      });
+      this.process.on("error", (err) => {
+        console.error("[MI2] GDB process error:", err);
+        reject(err);
+      });
+      setTimeout(async () => {
+        try {
+          for (const cmd of initCommands) {
+            await this.sendCommand(cmd);
+          }
+          this.running = true;
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      }, 500);
+    });
+  }
+  /**
+   * Handle GDB output
+   */
+  normalize(val, forceObject = false) {
+    if (!Array.isArray(val))
+      return val;
+    if (val.length === 0)
+      return [];
+    const isTupleList = val.every(
+      (item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string"
+    );
+    if (isTupleList) {
+      const keys = val.map((v) => v[0]);
+      const allSame = keys.every((k) => k === keys[0]);
+      if (allSame && !forceObject) {
+        return val.map((v) => this.normalize(v[1]));
+      }
+      return val.reduce((acc, [k, v]) => {
+        const normalizedV = this.normalize(v);
+        if (acc[k] !== void 0) {
+          if (Array.isArray(acc[k])) {
+            acc[k].push(normalizedV);
+          } else {
+            acc[k] = [acc[k], normalizedV];
+          }
+        } else {
+          acc[k] = normalizedV;
+        }
+        return acc;
+      }, {});
+    }
+    return val.map((v) => this.normalize(v));
+  }
+  // Buffer to capture recent console stream output (~ commands)
+  pendingConsoleOutput = "";
+  /**
+   * Handle GDB output
+   */
+  handleOutput(output) {
+    this.emit("msg", output);
+    this.buffer += output;
+    const lines = this.buffer.split("\n");
+    this.buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.trim())
+        continue;
+      const mi = parseMI(line);
+      if (!mi)
+        continue;
+      if (mi.outOfBandRecord) {
+        for (const record of mi.outOfBandRecord) {
+          if (record.isStream && record.type === "~") {
+            this.pendingConsoleOutput += record.content;
+          }
+        }
+      }
+      if (mi.token !== void 0 && this.pendingCommands.has(mi.token)) {
+        const callback = this.pendingCommands.get(mi.token);
+        this.pendingCommands.delete(mi.token);
+        if (mi.resultRecords && (mi.resultRecords.resultClass === "done" || mi.resultRecords.resultClass === "running")) {
+          const resultData = this.normalize(mi.resultRecords.results || [], true) || {};
+          if (this.pendingConsoleOutput) {
+            resultData.consoleOutput = this.pendingConsoleOutput;
+            this.pendingConsoleOutput = "";
+          }
+          callback.resolve({
+            token: mi.token,
+            resultClass: mi.resultRecords.resultClass,
+            resultData
+          });
+        } else if (mi.resultRecords && mi.resultRecords.resultClass === "error") {
+          callback.reject(new Error(mi.resultRecords.results?.[0]?.[1] || "GDB error"));
+          this.pendingConsoleOutput = "";
+        }
+      }
+      if (mi.outOfBandRecord) {
+        for (const record of mi.outOfBandRecord) {
+          if (!record.isStream) {
+            if (record.asyncClass === "stopped") {
+              const event = {
+                reason: this.extractStringValue(record.output, "reason") || "unknown",
+                signalName: this.extractStringValue(record.output, "signal-name"),
+                threadId: parseInt(this.extractStringValue(record.output, "thread-id") || "1") || 1,
+                frame: this.normalize(record.output.find((o) => o[0] === "frame")?.[1])
+              };
+              this.emit("stopped", event);
+            } else if (record.asyncClass === "running") {
+              this.emit("running");
             }
           }
         }
       }
     }
-    return risks;
   }
   /**
-   * @brief Detect division/modulo risks.
-   *
-   * @param [in]  sourceLine  Current source line.
-   * @param [in]  variables   Variables that might be divisors.
-   *
-   * @return Array of division risks.
+   * Send command to GDB
    */
-  detectDivisionRisk(sourceLine, variables) {
-    const risks = [];
-    const divPatterns = [
-      /\/\s*(\w+)/g,
-      // / var
-      /%\s*(\w+)/g
-      // % var
-    ];
-    const divisorVars = /* @__PURE__ */ new Set();
-    for (const pattern of divPatterns) {
-      let match;
-      while ((match = pattern.exec(sourceLine)) !== null) {
-        divisorVars.add(match[1]);
+  async sendCommand(cmd) {
+    return new Promise((resolve, reject) => {
+      if (!this.process) {
+        reject(new Error("GDB not started"));
+        return;
       }
-    }
-    for (const variable of variables) {
-      if (divisorVars.has(variable.name)) {
-        const value = this.parseValue(variable.value);
-        if (value === 0) {
-          risks.push({
-            variable: variable.name,
-            riskType: "division",
-            riskLevel: "high",
-            currentValue: variable.value,
-            expression: variable.name,
-            reason: `Division by zero: '${variable.name}' is 0`,
-            confidence: 1
-          });
-        } else if (value !== null && Math.abs(value) < 1 && variable.type?.includes("float")) {
-          risks.push({
-            variable: variable.name,
-            riskType: "division",
-            riskLevel: "medium",
-            currentValue: variable.value,
-            expression: variable.name,
-            reason: `Division by very small number: '${variable.name}' = ${variable.value}`,
-            confidence: 0.8
-          });
+      const token = this.token++;
+      this.pendingCommands.set(token, { resolve, reject });
+      const line = `${token}${cmd}
+`;
+      console.log("[MI2] Sending:", line.trim());
+      this.process.stdin?.write(line);
+      const timeoutMs = cmd.includes("-file-") ? 3e4 : 1e4;
+      setTimeout(() => {
+        if (this.pendingCommands.has(token)) {
+          this.pendingCommands.delete(token);
+          reject(new Error(`Command timeout after ${timeoutMs}ms: ${cmd}`));
         }
-      }
-    }
-    return risks;
-  }
-  // ==========================================================================
-  // Private Helpers
-  // ==========================================================================
-  /**
-   * @brief Parse numeric value from string.
-   *
-   * @param [in]  valueStr  Value string.
-   *
-   * @return Parsed number or null.
-   */
-  parseValue(valueStr) {
-    if (!valueStr)
-      return null;
-    let clean = valueStr.trim().toLowerCase();
-    if (clean.startsWith("0x")) {
-      clean = parseInt(clean, 16).toString();
-    }
-    const num = parseFloat(clean);
-    return isNaN(num) ? null : num;
+      }, timeoutMs);
+    });
   }
   /**
-   * @brief Check if source line has null check for variable.
-   *
-   * @param [in]  sourceLine  Source line.
-   * @param [in]  varName     Variable name.
-   *
-   * @return True if null check exists.
+   * Kill GDB process
    */
-  hasNullCheck(sourceLine, varName) {
-    const patterns = [
-      new RegExp(`\\b${varName}\\s*!=\\s*(NULL|nullptr|0)\\b`),
-      new RegExp(`\\b${varName}\\s*==\\s*(NULL|nullptr|0)\\b`),
-      new RegExp(`\\bif\\s*\\(\\s*!\\s*${varName}\\s*\\)`),
-      new RegExp(`\\bif\\s*\\(\\s*${varName}\\s*\\)`)
-    ];
-    return patterns.some((p) => p.test(sourceLine));
+  kill() {
+    if (this.process) {
+      this.process.kill();
+      this.process = void 0;
+      this.running = false;
+    }
+  }
+  /**
+   * Check if GDB is running
+   */
+  isRunning() {
+    return this.running;
+  }
+  /**
+   * Helper to extract string value from MI output
+   */
+  extractStringValue(output, key) {
+    const item = output ? output.find((o) => o[0] === key) : void 0;
+    return item ? String(item[1]) : void 0;
   }
 };
-var boundaryDetector = new BoundaryDetector();
 
-// src/debug/FSMDetector.ts
-var STATE_PATTERNS = [
-  /state/i,
-  /status/i,
-  /mode/i,
-  /phase/i,
-  /_st$/i,
-  /_state$/i,
-  /^m_/i,
-  /fsm/i,
-  /machine/i
-];
-var KNOWN_STATES = /* @__PURE__ */ new Map([
-  ["motor_state", ["MOTOR_STATE_STOPPED", "MOTOR_STATE_RUNNING", "MOTOR_STATE_ERROR", "MOTOR_STATE_INIT"]],
-  ["system_state", ["SYSTEM_STATE_IDLE", "SYSTEM_STATE_ACTIVE", "SYSTEM_STATE_ERROR"]],
-  ["connection_state", ["CONNECTED", "DISCONNECTED", "CONNECTING", "ERROR"]]
-]);
-var FSMDetector = class {
-  // sessionId -> varName -> value
-  constructor(changeTracker) {
-    this.changeTracker = changeTracker;
-  }
-  previousStates = /* @__PURE__ */ new Map();
+// src/backend/GDBBackend.ts
+var LOG_FILE2 = "/home/datdang/working/common_dev/ai_vscode_debug/proxy.log";
+var GDBBackend = class extends import_events2.EventEmitter {
+  mi2;
+  config;
+  running = false;
+  breakpoints = /* @__PURE__ */ new Map();
+  currentFrame;
+  lastStopEvent;
   /**
-   * @brief Identify potential state variables.
-   *
-   * @param [in]  variables   Array of variables to analyze.
-   *
-   * @return Array of state variable names.
+   * Log helper
    */
-  identifyStateVariables(variables) {
-    const stateVars = [];
-    for (const variable of variables) {
-      const isStateVar = STATE_PATTERNS.some((pattern) => pattern.test(variable.name));
-      const isEnumLike = this.isEnumLike(variable.value);
-      if (isStateVar || isEnumLike) {
-        stateVars.push(variable.name);
-      }
+  log(message) {
+    const logMsg = `[GDBBackend][${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
+`;
+    console.log(logMsg.trim());
+    try {
+      fs2.appendFileSync(LOG_FILE2, logMsg);
+    } catch (e) {
     }
-    return stateVars;
   }
   /**
-   * @brief Detect state transitions.
-   *
-   * @param [in]  sessionId   Debug session ID.
-   * @param [in]  variables   Current variables.
-   *
-   * @return Array of detected transitions.
+   * Initializes the GDB backend.
+   * Starts the GDB process with MI2 interpreter and pretty-printing enabled.
+   * 
+   * @param config - Backend configuration (gdbPath, etc.)
    */
-  detectTransitions(sessionId, variables) {
-    const transitions = [];
-    const sessionPrevStates = this.previousStates.get(sessionId) || /* @__PURE__ */ new Map();
-    const currentStep = this.changeTracker?.getCurrentStep(sessionId) ?? 0;
-    for (const variable of variables) {
-      if (!STATE_PATTERNS.some((p) => p.test(variable.name))) {
-        continue;
-      }
-      const prevState = sessionPrevStates.get(variable.name);
-      const currentState = variable.value || "unknown";
-      if (prevState && prevState !== currentState) {
-        const riskLevel = this.assessTransitionRisk(variable.name, prevState, currentState);
-        transitions.push({
-          variable: variable.name,
-          oldState: prevState,
-          newState: currentState,
-          stepNumber: currentStep,
-          riskLevel,
-          reason: `State transition: ${prevState} \u2192 ${currentState}`,
-          confidence: riskLevel === "high" ? 0.9 : 0.7
-        });
-      }
-    }
-    const newPrevStates = /* @__PURE__ */ new Map();
-    for (const variable of variables) {
-      if (STATE_PATTERNS.some((p) => p.test(variable.name))) {
-        newPrevStates.set(variable.name, variable.value || "unknown");
-      }
-    }
-    this.previousStates.set(sessionId, newPrevStates);
-    return transitions;
+  async initialize(config) {
+    this.log(`Initializing GDBBackend: ${JSON.stringify(config, null, 2)}`);
+    this.config = config;
+    this.mi2 = new MI2(config.gdbPath || "gdb", ["--interpreter=mi2"]);
+    this.mi2.on("msg", (msg) => {
+      this.log(`[MI2 RAW] ${msg}`);
+    });
+    this.mi2.on("stopped", (event) => {
+      this.log(`[GDBBackend] Stopped event: ${event.reason}`);
+      this.running = false;
+      this.updateCurrentFrame(event);
+      this.lastStopEvent = this.createStopEvent(event);
+      this.emit("stopped", this.lastStopEvent);
+    });
+    this.mi2.on("running", () => {
+      this.log("[GDBBackend] Running event");
+      this.running = true;
+      this.emit("running");
+    });
+    this.mi2.on("exited", (code) => {
+      this.log(`[GDBBackend] Exited with code: ${code}`);
+      this.running = false;
+      this.emit("exited", code);
+    });
+    await this.mi2.start(process.cwd(), [
+      "-enable-pretty-printing",
+      "-gdb-set target-async on"
+    ]);
+    this.running = false;
+    this.log("GDBBackend initialized successfully");
   }
   /**
-   * @brief Generate watch suggestions from transitions.
-   *
-   * @param [in]  transitions   Array of transitions.
-   *
-   * @return Array of watch suggestions.
+   * Create StopEvent from MI2 event
    */
-  generateSuggestions(transitions) {
-    return transitions.map((t) => ({
-      variable: t.variable,
-      reason: t.reason,
-      riskLevel: t.riskLevel,
-      riskScore: t.riskLevel === "high" ? 3 : t.riskLevel === "medium" ? 2 : 1,
-      expression: t.variable,
-      category: "fsm",
-      metadata: {
-        oldState: t.oldState,
-        newState: t.newState
+  createStopEvent(event) {
+    const reason = event.reason === "exited" ? "exited" : event.reason === "breakpoint-hit" ? "breakpoint" : event.reason === "end-stepping-range" || event.reason === "function-finished" ? "step" : event.reason === "signal-received" ? event.signalName === "SIGINT" ? "pause" : "exception" : "pause";
+    return {
+      reason,
+      threadId: event.threadId || 1,
+      allThreadsStopped: true,
+      frame: event.frame ? {
+        id: 0,
+        name: event.frame.func || "??",
+        path: event.frame.fullname || event.frame.file || "",
+        line: parseInt(event.frame.line) || 0,
+        column: 0
+      } : void 0
+    };
+  }
+  /**
+   * Update current frame from stop event
+   */
+  updateCurrentFrame(event) {
+    if (event.frame) {
+      this.currentFrame = {
+        id: 0,
+        name: event.frame.func || "??",
+        path: event.frame.fullname || event.frame.file || "",
+        line: parseInt(event.frame.line) || 0,
+        column: 0
+      };
+    }
+  }
+  /**
+   * Launch debug session
+   */
+  async launch(params) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    this.log(`Starting program: ${params.program}`);
+    await this.mi2.sendCommand(`-file-exec-and-symbols "${params.program}"`);
+    if (params.cwd) {
+      await this.mi2.sendCommand(`-environment-cd "${params.cwd}"`);
+    }
+    if (params.stopOnEntry) {
+      await this.mi2.sendCommand("-break-insert main");
+      console.log("[GDBBackend] Breakpoint set at main");
+    }
+    this.log("Launch complete (deferred -exec-run)");
+  }
+  /**
+   * Start execution
+   */
+  async start() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Starting program execution");
+    await this.mi2.sendCommand("-exec-run");
+    this.running = true;
+  }
+  /**
+   * Attach to running process
+   */
+  async attach(params) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Attaching to PID:", params.processId);
+    await this.mi2.sendCommand(`-target-attach ${params.processId}`);
+  }
+  /**
+   * Terminate debug session
+   */
+  async terminate() {
+    console.log("[GDBBackend] Terminating session");
+    if (this.mi2) {
+      this.mi2.sendCommand("-gdb-exit").catch(() => {
+      });
+      this.mi2.kill();
+      this.mi2 = void 0;
+    }
+    this.running = false;
+    this.breakpoints.clear();
+    this.currentFrame = void 0;
+  }
+  /**
+   * Check if debugger is running
+   */
+  isRunning() {
+    this.log(`isRunning() check: ${this.running}`);
+    return this.running;
+  }
+  /**
+   * Continue execution
+   * Returns immediately when GDB acknowledges (program is running)
+   * Emits 'stopped' event when program actually stops
+   */
+  async continue() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    this.log("[GDBBackend] Continuing execution - setting running=true");
+    this.running = true;
+    await this.mi2.sendCommand("-exec-continue");
+  }
+  /**
+   * Step over (next line)
+   * Returns immediately when GDB acknowledges
+   * Emits 'stopped' event when step completes
+   */
+  async stepOver() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Stepping over");
+    this.running = true;
+    await this.mi2.sendCommand("-exec-next");
+  }
+  /**
+   * Step into function
+   */
+  async stepIn() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Stepping into");
+    this.running = true;
+    await this.mi2.sendCommand("-exec-step");
+  }
+  /**
+   * Step out of function
+   */
+  async stepOut() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Stepping out");
+    this.running = true;
+    await this.mi2.sendCommand("-exec-finish");
+  }
+  /**
+   * Pause execution
+   */
+  async pause() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Pausing execution");
+    await this.mi2.sendCommand("-exec-interrupt");
+  }
+  /**
+   * Jump to line (Safely)
+   */
+  async jumpToLine(line, file) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    this.log(`Attempting jump to line ${line}${file ? ` in ${file}` : ""}`);
+    let targetFile = file;
+    if (!targetFile) {
+      const stack = await this.getStackTrace();
+      if (stack.length === 0) {
+        throw new Error("Cannot jump: No current file context and no file specified");
       }
+      targetFile = stack[0].path;
+    }
+    if (!targetFile) {
+      throw new Error("Cannot jump: No file path available");
+    }
+    this.log(`Forcing temporary breakpoint at ${targetFile}:${line} for jump safety`);
+    await this.mi2.sendCommand(`-break-insert -t ${targetFile}:${line}`);
+    await this.mi2.sendCommand(`-exec-jump ${targetFile}:${line}`);
+  }
+  /**
+   * Run until line (safe)
+   */
+  async runUntilLine(line, file) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    this.log(`Running until line ${line}${file ? ` in ${file}` : ""}`);
+    let targetFile = file;
+    if (!targetFile) {
+      const stack = await this.getStackTrace();
+      if (stack.length === 0) {
+        throw new Error("Cannot run until line: No current file context and no file specified");
+      }
+      targetFile = stack[0].path;
+    }
+    if (!targetFile) {
+      throw new Error("Cannot run until line: No file path available");
+    }
+    await this.mi2.sendCommand(`-break-insert -t ${targetFile}:${line}`);
+    await this.mi2.sendCommand("-exec-continue");
+  }
+  /**
+   * Set breakpoint at location
+   */
+  async setBreakpoint(location) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Setting breakpoint at", location);
+    const result = await this.mi2.sendCommand(`-break-insert ${location.path}:${location.line}`);
+    const bp = {
+      id: `bp-${Date.now()}`,
+      verified: true,
+      line: location.line,
+      file: location.path
+    };
+    this.breakpoints.set(bp.id, bp);
+    return bp;
+  }
+  /**
+   * Remove breakpoint
+   */
+  async removeBreakpoint(id) {
+    console.log("[GDBBackend] Removing breakpoint:", id);
+    this.breakpoints.delete(id);
+  }
+  /**
+   * Get all breakpoints
+   */
+  async getBreakpoints() {
+    return Array.from(this.breakpoints.values());
+  }
+  /**
+   * Get stack trace
+   */
+  async getStackTrace(threadId) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Getting stack trace");
+    const result = await this.mi2.sendCommand("-stack-list-frames");
+    this.log(`stack-list-frames results: ${JSON.stringify(result.resultData, null, 2)}`);
+    if (!result.resultData || !result.resultData.stack) {
+      return [];
+    }
+    return result.resultData.stack.map((frame) => ({
+      id: parseInt(frame.level) || 0,
+      name: frame.func || "??",
+      path: frame.fullname || frame.file || "",
+      line: parseInt(frame.line) || 0,
+      column: 0
     }));
   }
   /**
-   * @brief Clear state tracking for session.
-   *
-   * @param [in]  sessionId   Debug session ID.
+   * Get variables in current frame
    */
-  clear(sessionId) {
-    this.previousStates.delete(sessionId);
-  }
-  // ==========================================================================
-  // Private Helpers
-  // ==========================================================================
-  /**
-   * @brief Check if value looks like an enum/state.
-   *
-   * @param [in]  value   Variable value.
-   *
-   * @return True if enum-like.
-   */
-  isEnumLike(value) {
-    if (!value)
-      return false;
-    if (/^[A-Z][A-Z0-9_]+$/.test(value)) {
-      return true;
+  async getVariables(frameId) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Getting variables");
+    if (frameId !== void 0) {
+      await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
     }
-    for (const states of KNOWN_STATES.values()) {
-      if (states.some((s) => value.includes(s))) {
-        return true;
-      }
-    }
-    return false;
-  }
-  /**
-   * @brief Assess risk level of state transition.
-   *
-   * @param [in]  varName     Variable name.
-   * @param [in]  oldState    Previous state.
-   * @param [in]  newState    New state.
-   *
-   * @return Risk level.
-   */
-  assessTransitionRisk(varName, oldState, newState) {
-    const newStateLower = newState.toLowerCase();
-    const oldStateLower = oldState.toLowerCase();
-    if (newStateLower.includes("error") || newStateLower.includes("invalid") || newStateLower.includes("fault")) {
-      return "high";
-    }
-    if (KNOWN_STATES.has(varName)) {
-      const knownStates = KNOWN_STATES.get(varName);
-      if (!knownStates.some((s) => s.toLowerCase() === newStateLower)) {
-        return "high";
-      }
-    }
-    if ((oldStateLower.includes("run") || oldStateLower.includes("active")) && (newStateLower.includes("stop") || newStateLower.includes("idle"))) {
-      return "medium";
-    }
-    if (newStateLower.includes("init") || newStateLower.includes("reset")) {
-      return "medium";
-    }
-    return "low";
-  }
-};
-var fsmDetector = new FSMDetector();
-
-// src/debug/WatchSuggestService.ts
-var LOG10 = "WatchSuggestService";
-var MAX_SUGGESTIONS = 10;
-var CHANGE_WINDOW = 5;
-var HIGH_RISK_THRESHOLD = 3;
-var MEDIUM_RISK_THRESHOLD = 2;
-var WatchSuggestService = class {
-  changeTracker;
-  boundaryDetector;
-  fsmDetector;
-  constructor(changeTracker, boundaryDetector2, fsmDetector2) {
-    this.changeTracker = changeTracker || new VariableChangeTracker();
-    this.boundaryDetector = boundaryDetector2 || new BoundaryDetector();
-    this.fsmDetector = fsmDetector2 || new FSMDetector(this.changeTracker);
-  }
-  /**
-   * @brief Get ranked watch suggestions for current debug state.
-   *
-   * @param [in]  session   VS Code debug session.
-   *
-   * @return Watch suggestions ranked by risk.
-   */
-  async getSuggestions(session) {
-    const sessionId = session.id;
-    const allSuggestions = [];
-    try {
-      const variables = await this.gatherVariables(session);
-      const location = getLastLocation(sessionId);
-      const sourceLine = await this.getCurrentSourceLine(session, location);
-      const changeCount = this.changeTracker.trackVariables(sessionId, variables);
-      logger.debug(LOG10, `Tracked ${variables.length} variables, ${changeCount} changes`);
-      const changeSuggestions = this.getChangeBasedSuggestions(sessionId);
-      allSuggestions.push(...changeSuggestions);
-      const boundarySuggestions = this.getBoundarySuggestions(variables, sourceLine);
-      allSuggestions.push(...boundarySuggestions);
-      const fsmSuggestions = this.getFSMSuggestions(sessionId, variables);
-      allSuggestions.push(...fsmSuggestions);
-      const ranked = this.rankAndDeduplicate(allSuggestions);
-      const autoWatch = ranked.filter((s) => s.riskLevel === "high").slice(0, 5).map((s) => s.variable);
-      const highRiskCount = ranked.filter((s) => s.riskLevel === "high").length;
-      const mediumRiskCount = ranked.filter((s) => s.riskLevel === "medium").length;
-      const lowRiskCount = ranked.filter((s) => s.riskLevel === "low").length;
-      return {
-        suggestions: ranked,
-        autoWatch,
-        metadata: {
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          totalCandidates: allSuggestions.length,
-          highRiskCount,
-          mediumRiskCount,
-          lowRiskCount
-        }
-      };
-    } catch (e) {
-      logger.error(LOG10, `Failed to get suggestions: ${e.message}`);
-      return {
-        suggestions: [],
-        autoWatch: [],
-        metadata: {
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          totalCandidates: 0,
-          highRiskCount: 0,
-          mediumRiskCount: 0,
-          lowRiskCount: 0
-        }
-      };
-    }
-  }
-  /**
-   * @brief Get change tracker instance.
-   */
-  getChangeTracker() {
-    return this.changeTracker;
-  }
-  // ==========================================================================
-  // Private Helpers - Suggestion Generation
-  // ==========================================================================
-  /**
-   * @brief Get suggestions based on variable changes.
-   */
-  getChangeBasedSuggestions(sessionId) {
-    const suggestions = [];
-    const changes = this.changeTracker.getChangedVariables(sessionId, CHANGE_WINDOW);
-    for (const change of changes) {
-      const riskScore = this.calculateChangeRiskScore(change);
-      const riskLevel = this.scoreToRiskLevel(riskScore);
-      suggestions.push({
-        variable: change.name,
-        reason: `Changed ${change.changeCount} time(s) in last ${CHANGE_WINDOW} steps: ${change.oldValue} \u2192 ${change.newValue}`,
-        riskLevel,
-        riskScore,
-        expression: change.name,
-        category: "recent_change",
-        metadata: {
-          changeCount: change.changeCount,
-          oldValue: change.oldValue,
-          newValue: change.newValue
-        }
-      });
-    }
-    return suggestions;
-  }
-  /**
-   * @brief Get suggestions based on boundary risks.
-   */
-  getBoundarySuggestions(variables, sourceLine) {
-    const suggestions = [];
-    const overflowRisks = this.boundaryDetector.detectOverflow(variables);
-    for (const risk of overflowRisks) {
-      suggestions.push(this.boundaryRiskToSuggestion(risk));
-    }
-    const pointerVars = variables.filter((v) => v.type?.includes("*") || v.type?.toLowerCase().includes("ptr"));
-    const nullRisks = this.boundaryDetector.detectNullPointerRisk(sourceLine, pointerVars);
-    for (const risk of nullRisks) {
-      suggestions.push(this.boundaryRiskToSuggestion(risk));
-    }
-    const capacityRisks = this.boundaryDetector.detectCapacityRisk(variables);
-    for (const risk of capacityRisks) {
-      suggestions.push(this.boundaryRiskToSuggestion(risk));
-    }
-    return suggestions;
-  }
-  /**
-   * @brief Get suggestions based on FSM transitions.
-   */
-  getFSMSuggestions(sessionId, variables) {
-    const transitions = this.fsmDetector.detectTransitions(sessionId, variables);
-    return this.fsmDetector.generateSuggestions(transitions);
-  }
-  // ==========================================================================
-  // Private Helpers - Ranking & Scoring
-  // ==========================================================================
-  /**
-   * @brief Rank and deduplicate suggestions.
-   */
-  rankAndDeduplicate(suggestions) {
-    const byVariable = /* @__PURE__ */ new Map();
-    for (const suggestion of suggestions) {
-      const existing = byVariable.get(suggestion.variable) || [];
-      existing.push(suggestion);
-      byVariable.set(suggestion.variable, existing);
-    }
-    const merged = [];
-    for (const [variable, varSuggestions] of byVariable) {
-      const best = varSuggestions.reduce(
-        (a, b) => a.riskScore > b.riskScore ? a : b
-      );
-      if (varSuggestions.length > 1) {
-        const categories = [...new Set(varSuggestions.map((s) => s.category))];
-        best.reason = `${best.reason} [${categories.join(", ")}]`;
-      }
-      merged.push(best);
-    }
-    return merged.sort((a, b) => b.riskScore - a.riskScore).slice(0, MAX_SUGGESTIONS);
-  }
-  /**
-   * @brief Calculate risk score from change pattern.
-   */
-  calculateChangeRiskScore(change) {
-    let score = 0;
-    if (change.changeCount >= 3) {
-      score = 3;
-    } else if (change.changeCount >= 2) {
-      score = 2;
-    } else {
-      score = 1;
-    }
-    if (change.stepsAgo === 0) {
-      score += 0.5;
-    }
-    return Math.min(score, 3);
-  }
-  /**
-   * @brief Convert numeric score to risk level.
-   */
-  scoreToRiskLevel(score) {
-    if (score >= HIGH_RISK_THRESHOLD)
-      return "high";
-    if (score >= MEDIUM_RISK_THRESHOLD)
-      return "medium";
-    return "low";
-  }
-  /**
-   * @brief Convert BoundaryRisk to WatchSuggestion.
-   */
-  boundaryRiskToSuggestion(risk) {
-    return {
-      variable: risk.variable,
-      reason: risk.reason,
-      riskLevel: risk.riskLevel,
-      riskScore: risk.riskLevel === "high" ? 3 : risk.riskLevel === "medium" ? 2 : 1,
-      expression: risk.expression,
-      category: "boundary",
-      metadata: {
-        threshold: risk.threshold
-      }
-    };
-  }
-  // ==========================================================================
-  // Private Helpers - Data Gathering
-  // ==========================================================================
-  /**
-   * @brief Gather all variables from current stack frame.
-   */
-  async gatherVariables(session) {
-    const variables = [];
-    try {
-      const result = await getStackFrameVariables(session, { frameId: 0 });
-      if (result.success && result.scopes) {
-        for (const scope of result.scopes) {
-          if (scope.variables) {
-            variables.push(...scope.variables);
-          }
-        }
-      }
-    } catch (e) {
-      logger.warn(LOG10, `Failed to gather variables: ${e.message}`);
-    }
-    return variables;
-  }
-  /**
-   * @brief Get current source line for context analysis.
-   */
-  async getCurrentSourceLine(session, location) {
-    if (!location || !location.file) {
-      return "";
-    }
-    try {
-      const uri = vscode7.Uri.file(location.file);
-      const document = await vscode7.workspace.openTextDocument(uri);
-      const line = document.lineAt(location.line - 1);
-      return line.text;
-    } catch (e) {
-      logger.warn(LOG10, `Failed to get source line: ${e.message}`);
-      return "";
-    }
-  }
-};
-var watchSuggestService = new WatchSuggestService();
-
-// src/debug/GlobalDiscoveryService.ts
-init_logging();
-
-// src/debug/SymbolParser.ts
-var import_child_process = require("child_process");
-var fs4 = __toESM(require("fs"));
-init_logging();
-var LOG11 = "SymbolParser";
-var SymbolParser = class {
-  binaryPath;
-  constructor(binaryPath) {
-    this.binaryPath = binaryPath;
-  }
-  /**
-   * @brief Discover all global variables in binary.
-   *
-   * @return Array of global variable info.
-   */
-  async discoverGlobals() {
-    try {
-      if (!fs4.existsSync(this.binaryPath)) {
-        logger.error(LOG11, `Binary not found: ${this.binaryPath}`);
-        return [];
-      }
-      const symbols = await this.parseWithNm();
-      const globals = symbols.filter(
-        (sym) => sym.section === ".data" || sym.section === ".bss" || sym.section === ".rodata"
-      );
-      logger.info(LOG11, `Discovered ${globals.length} global variables`);
-      return globals;
-    } catch (e) {
-      logger.error(LOG11, `Symbol parsing failed: ${e.message}`);
+    const result = await this.mi2.sendCommand("-stack-list-locals 1");
+    this.log(`stack-list-locals results: ${JSON.stringify(result.resultData, null, 2)}`);
+    if (!result.resultData || !result.resultData.locals) {
       return [];
     }
+    return result.resultData.locals.map((local) => ({
+      name: local.name || "unknown",
+      value: local.value || "undefined",
+      type: local.type || "unknown",
+      children: 0
+    }));
   }
   /**
-   * @brief Discover globals matching name patterns.
-   *
-   * @param [in]  patterns  Array of glob patterns (e.g., ['*status*', '*error*'])
-   *
-   * @return Filtered array of matching globals.
+   * Get function arguments
    */
-  async discoverByPattern(patterns) {
-    const allGlobals = await this.discoverGlobals();
-    return allGlobals.filter(
-      (global) => patterns.some((pattern) => this.matchesPattern(global.name, pattern))
-    );
-  }
-  // ==========================================================================
-  // Private Helpers
-  // ==========================================================================
-  /**
-   * @brief Parse symbol table using nm command.
-   *
-   * @return Array of all symbols.
-   */
-  async parseWithNm() {
-    return new Promise((resolve, reject) => {
-      const args = ["-t", "x", "--defined-only", this.binaryPath];
-      const proc = (0, import_child_process.spawn)("nm", args);
-      let output = "";
-      let errorOutput = "";
-      proc.stdout.on("data", (data) => {
-        output += data.toString();
-      });
-      proc.stderr.on("data", (data) => {
-        errorOutput += data.toString();
-      });
-      proc.on("close", (code) => {
-        if (code !== 0 && !output) {
-          logger.warn(LOG11, `nm exited with code ${code}: ${errorOutput}`);
-          resolve([]);
-          return;
-        }
-        const symbols = this.parseNmOutput(output);
-        resolve(symbols);
-      });
-      proc.on("error", (err) => {
-        logger.error(LOG11, `nm spawn failed: ${err.message}`);
-        reject(err);
-      });
-    });
+  async getArguments(frameId) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Getting arguments");
+    if (frameId !== void 0) {
+      await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
+    }
+    const result = await this.mi2.sendCommand("-stack-list-arguments 1");
+    if (!result.resultData || !result.resultData.stackargs) {
+      return [];
+    }
+    return result.resultData.stackargs.map((arg) => ({
+      name: arg.name || "unknown",
+      value: arg.value || "undefined",
+      type: arg.type || "unknown",
+      children: 0
+    }));
   }
   /**
-   * @brief Parse nm output into structured format.
-   *
-   * nm output format: "<address> <type> <name>"
-   * Example: "000000000001a988 B Rte_ErrorCount"
-   *
-   * @param [in]  output  nm command output.
-   *
-   * @return Array of symbol info.
+   * Get global variables
    */
-  parseNmOutput(output) {
-    const symbols = [];
-    const lines = output.split("\n").filter((line) => line.trim());
+  async getGlobals() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Getting globals");
+    const consoleStr = await this.executeStatement("info variables");
+    if (!consoleStr)
+      return [];
+    const vars = [];
+    const lines = consoleStr.split("\n");
     for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      if (parts.length < 3)
-        continue;
-      const address = parts[0];
-      const type = parts[1];
-      const name = parts.slice(2).join(" ");
-      const section = this.parseSectionType(type);
-      if (section === "other") {
-        continue;
+      const match = line.match(/^\d+:\s+(.*?)\s+([a-zA-Z0-9_]+)(\[.+\])?;/);
+      if (match) {
+        vars.push({
+          name: match[2].trim(),
+          value: "<use evaluate>",
+          type: match[1].trim(),
+          children: 0
+        });
       }
-      symbols.push({
-        name,
-        address: `0x${address}`,
-        section,
-        size: void 0,
-        // Would need objdump for size
-        type: "unknown"
-      });
     }
-    return symbols;
+    return vars;
   }
   /**
-   * @brief Parse nm symbol type to section.
-   *
-   * @param [in]  type  nm symbol type character.
-   *
-   * @return Section type.
+   * Evaluate expression
    */
-  parseSectionType(type) {
-    switch (type) {
-      case "B":
-      case "b":
-        return ".bss";
-      case "D":
-      case "d":
-        return ".data";
-      case "R":
-      case "r":
-        return ".rodata";
-      case "T":
-      case "t":
-        return ".text";
-      default:
-        return "other";
+  async evaluate(expression, frameId) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Evaluating:", expression);
+    const result = await this.mi2.sendCommand(`-data-evaluate-expression "${expression}"`);
+    return {
+      name: expression,
+      value: result.resultData?.value || "undefined",
+      type: result.resultData?.type || "unknown",
+      variablesReference: 0,
+      children: 0
+    };
+  }
+  /**
+   * Get CPU registers
+   */
+  async getRegisters() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Getting registers");
+    const result = await this.mi2.sendCommand("-data-list-register-values x");
+    if (!result.resultData || !result.resultData["register-values"]) {
+      return [];
     }
+    return result.resultData["register-values"].map((reg) => ({
+      name: `r${reg.number}`,
+      value: reg.value,
+      type: "hex",
+      children: 0
+    }));
   }
   /**
-   * @brief Check if name matches glob pattern.
-   *
-   * @param [in]  name     Variable name.
-   * @param [in]  pattern  Glob pattern (e.g., '*status*')
-   *
-   * @return True if matches.
+   * Read memory
    */
-  matchesPattern(name, pattern) {
-    const regexPattern = pattern.replace(/\*/g, ".*").replace(/\?/g, ".").replace(/\./g, "\\.");
-    const regex = new RegExp(`^${regexPattern}$`, "i");
-    return regex.test(name);
-  }
-};
-
-// src/debug/GlobalDiscoveryService.ts
-init_session();
-var LOG12 = "GlobalDiscovery";
-var DEFAULT_SUSPICIOUS_PATTERNS = [
-  "*status*",
-  "*state*",
-  "*error*",
-  "*flag*",
-  "*count*",
-  "*index*",
-  "*mode*",
-  "*phase*",
-  "*ready*",
-  "*active*",
-  "*enable*",
-  "*disable*",
-  "*config*",
-  "*setting*",
-  "*limit*",
-  "*threshold*",
-  "*buffer*",
-  "*queue*",
-  "*stack*"
-];
-var GlobalDiscoveryService = class {
-  parsers = /* @__PURE__ */ new Map();
-  cache = /* @__PURE__ */ new Map();
-  cacheTimeoutMs = 6e4;
-  // 1 minute
-  /**
-   * @brief Discover all global variables in current binary.
-   *
-   * @param [in]  binaryPath  Optional binary path (uses active session if not provided)
-   *
-   * @return Discovery result.
-   */
-  async discoverGlobals(binaryPath) {
-    try {
-      if (!binaryPath) {
-        const session = getActiveSession();
-        if (!session) {
-          throw new Error("No active debug session and no binary path provided");
-        }
-        binaryPath = session.configuration.program;
-        if (!binaryPath) {
-          throw new Error("Cannot determine binary path from session");
-        }
-      }
-      const cached = this.cache.get(binaryPath);
-      if (cached && Date.now() - new Date(cached.discoveredAt).getTime() < this.cacheTimeoutMs) {
-        logger.debug(LOG12, `Cache hit for ${binaryPath}`);
-        return cached;
-      }
-      logger.info(LOG12, `Discovering globals in ${binaryPath}`);
-      const parser = this.getOrCreateParser(binaryPath);
-      const allGlobals = await parser.discoverGlobals();
-      const suspiciousGlobals = await this.filterByPattern(
-        allGlobals,
-        DEFAULT_SUSPICIOUS_PATTERNS
-      );
-      const result = {
-        allGlobals,
-        suspiciousGlobals,
-        binaryPath,
-        discoveredAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      this.cache.set(binaryPath, result);
-      logger.info(LOG12, `Discovered ${allGlobals.length} globals, ${suspiciousGlobals.length} suspicious`);
-      return result;
-    } catch (e) {
-      logger.error(LOG12, `Discovery failed: ${e.message}`);
-      return {
-        allGlobals: [],
-        suspiciousGlobals: [],
-        binaryPath: binaryPath || "unknown",
-        discoveredAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
+  async readMemory(address, length) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Reading memory at 0x" + address.toString(16));
+    const result = await this.mi2.sendCommand(
+      `-data-read-memory-bytes "0x${address.toString(16)}" ${length}`
+    );
+    if (!result.resultData || !result.resultData.memory) {
+      return Buffer.alloc(length);
     }
+    const memory = result.resultData.memory[0];
+    const contents = memory.contents || "";
+    const hex = contents.replace(/ /g, "");
+    return Buffer.from(hex, "hex");
   }
   /**
-   * @brief Discover globals matching custom patterns.
-   *
-   * @param [in]  patterns  Array of glob patterns.
-   * @param [in]  binaryPath  Optional binary path.
-   *
-   * @return Filtered array of matching globals.
+   * Write memory
    */
-  async discoverByPattern(patterns, binaryPath) {
-    const result = await this.discoverGlobals(binaryPath);
-    return this.filterByPattern(result.allGlobals, patterns);
-  }
-  /**
-   * @brief Filter globals by name patterns.
-   *
-   * @param [in]  globals   Array of globals to filter.
-   * @param [in]  patterns  Array of glob patterns.
-   *
-   * @return Filtered array.
-   */
-  filterByPattern(globals, patterns) {
-    return globals.filter(
-      (global) => patterns.some((pattern) => this.matchesPattern(global.name, pattern))
+  async writeMemory(address, data) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Writing memory at 0x" + address.toString(16));
+    const hex = data.toString("hex");
+    await this.mi2.sendCommand(
+      `-interpreter-exec console "set {char[${data.length}]} 0x${address.toString(16)} = 0x${hex}"`
     );
   }
   /**
-   * @brief Clear discovery cache.
-   *
-   * @param [in]  binaryPath  Optional binary path (clears all if not provided)
+   * Get last stop information
    */
-  clearCache(binaryPath) {
-    if (binaryPath) {
-      this.cache.delete(binaryPath);
-      logger.info(LOG12, `Cleared cache for ${binaryPath}`);
+  async getLastStopInfo() {
+    console.log("[GDBBackend] Getting last stop info");
+    if (this.lastStopEvent) {
+      return this.lastStopEvent;
+    }
+    const frames = await this.getStackTrace();
+    return {
+      reason: "pause",
+      threadId: 1,
+      allThreadsStopped: true,
+      frame: frames[0]
+    };
+  }
+  /**
+   * Get debugger capabilities
+   */
+  getCapabilities() {
+    return {
+      supportsLaunch: true,
+      supportsAttach: true,
+      supportsHardwareBreakpoints: false,
+      supportsWatchpoints: true,
+      supportsTrace: false,
+      supportsMultiCore: false,
+      supportedArchitectures: ["x86_64", "i386", "arm", "arm64"],
+      supportedTargets: ["linux", "windows", "qemu"]
+    };
+  }
+  /**
+   * Restart debug session
+   */
+  async restart() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Restarting session");
+    await this.mi2.sendCommand("-exec-run");
+  }
+  /**
+   * Frame up (toward caller)
+   */
+  async frameUp() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Frame up");
+    await this.mi2.sendCommand("-stack-select-frame +1");
+  }
+  /**
+   * Frame down (toward callee)
+   */
+  async frameDown() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Frame down");
+    await this.mi2.sendCommand("-stack-select-frame -1");
+  }
+  /**
+   * Go to specific frame
+   */
+  async gotoFrame(frameId) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Go to frame:", frameId);
+    await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
+  }
+  /**
+   * Set temporary breakpoint
+   */
+  async setTempBreakpoint(location) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Set temp breakpoint at", location);
+    await this.mi2.sendCommand(`-break-insert -t ${location.path}:${location.line}`);
+    return {
+      id: `tbp-${Date.now()}`,
+      verified: true,
+      line: location.line,
+      file: location.path
+    };
+  }
+  /**
+   * Remove all breakpoints in file
+   */
+  async removeAllBreakpointsInFile(filePath) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Remove all breakpoints in", filePath);
+    const result = await this.mi2.sendCommand("-break-list");
+    if (!result.resultData?.BreakpointTable?.body)
+      return;
+    const bps = result.resultData.BreakpointTable.body;
+    for (const bp of bps) {
+      const bpFile = bp[4] || bp.file || "";
+      if (bpFile.includes(filePath)) {
+        const bpNumber = bp[0] || bp.number;
+        await this.mi2.sendCommand(`-break-delete ${bpNumber}`);
+      }
+    }
+  }
+  /**
+   * List source code
+   */
+  async listSource(params) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] List source");
+    const result = await this.mi2.sendCommand('-interpreter-exec console "list"');
+    return result.resultData?.value || "";
+  }
+  /**
+   * Get source info
+   */
+  async getSource(expression) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Get source:", expression);
+    const result = await this.mi2.sendCommand('-interpreter-exec console "info source"');
+    return result.resultData?.value || "";
+  }
+  /**
+   * Pretty print expression
+   */
+  async prettyPrint(expression) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Pretty print:", expression);
+    const result = await this.mi2.sendCommand(`-data-evaluate-expression "${expression}"`);
+    return {
+      name: expression,
+      value: result.resultData?.value || "undefined",
+      type: result.resultData?.type || "unknown"
+    };
+  }
+  /**
+   * Whatis - get type of expression
+   */
+  async whatis(expression) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Whatis:", expression);
+    const result = await this.mi2.sendCommand(`-interpreter-exec console "whatis ${expression}"`);
+    return result.resultData?.value || "";
+  }
+  /**
+   * Execute statement
+   */
+  async executeStatement(statement) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    console.log("[GDBBackend] Execute statement:", statement);
+    const result = await this.mi2.sendCommand(`-interpreter-exec console "${statement}"`);
+    return result.resultData?.consoleOutput || result.resultData?.value || "";
+  }
+  /**
+   * List all locals (alias for getVariables)
+   */
+  async listAllLocals() {
+    return this.getVariables();
+  }
+  /**
+   * Get scope preview (locals + args)
+   */
+  async getScopePreview() {
+    const locals = await this.getVariables();
+    const args = await this.getArguments();
+    return { locals, args };
+  }
+};
+
+// src/backend/BackendManager.ts
+var BackendManager = class _BackendManager {
+  static instance;
+  currentBackend;
+  backendInstances = /* @__PURE__ */ new Map();
+  /**
+   * Get singleton instance
+   */
+  static getInstance() {
+    if (!this.instance) {
+      console.log("[BackendManager] Creating NEW singleton instance");
+      this.instance = new _BackendManager();
     } else {
-      this.cache.clear();
-      logger.info(LOG12, "Cleared all caches");
     }
-  }
-  // ==========================================================================
-  // Private Helpers
-  // ==========================================================================
-  /**
-   * @brief Get or create symbol parser for binary.
-   *
-   * @param [in]  binaryPath  Binary path.
-   *
-   * @return Symbol parser.
-   */
-  getOrCreateParser(binaryPath) {
-    let parser = this.parsers.get(binaryPath);
-    if (!parser) {
-      parser = new SymbolParser(binaryPath);
-      this.parsers.set(binaryPath, parser);
-      logger.debug(LOG12, `Created parser for ${binaryPath}`);
-    }
-    return parser;
+    return this.instance;
   }
   /**
-   * @brief Check if name matches glob pattern.
-   *
-   * @param [in]  name     Variable name.
-   * @param [in]  pattern  Glob pattern.
-   *
-   * @return True if matches.
+   * Create backend based on type
+   * @param type Backend type (gdb, lauterbach, etc.)
+   * @param config Backend configuration
    */
-  matchesPattern(name, pattern) {
-    const cleanPattern = pattern.replace(/\*/g, "");
-    return name.toLowerCase().includes(cleanPattern.toLowerCase());
+  createBackend(type, config) {
+    console.log("[BackendManager] Creating backend:", type, "Current instances:", this.backendInstances.size);
+    const existing = this.backendInstances.get(type);
+    if (existing) {
+      console.log("[BackendManager] Reusing existing backend instance");
+      this.currentBackend = existing;
+      return existing;
+    }
+    let backend;
+    switch (type.toLowerCase()) {
+      case "gdb":
+        backend = new GDBBackend();
+        break;
+      case "lauterbach":
+        throw new Error("Lauterbach backend not yet implemented");
+      default:
+        throw new Error(`Unknown backend type: ${type}`);
+    }
+    this.backendInstances.set(type, backend);
+    this.currentBackend = backend;
+    console.log("[BackendManager] Backend created successfully and set as current");
+    return backend;
+  }
+  /**
+   * Get current backend
+   */
+  getCurrentBackend() {
+    if (!this.currentBackend) {
+      console.log("[BackendManager] getCurrentBackend: No backend set! Current instances:", this.backendInstances.size);
+    } else {
+    }
+    return this.currentBackend;
+  }
+  /**
+   * Set active backend (used for testing)
+   */
+  setActiveBackend(backend) {
+    this.currentBackend = backend;
+    this.backendInstances.set("mock", backend);
+  }
+  /**
+   * Get or create backend
+   */
+  async getOrCreateBackend(type, config) {
+    let backend = this.currentBackend;
+    if (!backend) {
+      console.log("[BackendManager] getOrCreateBackend: No current backend, creating...");
+      backend = this.createBackend(type, config);
+      await backend.initialize(config);
+    }
+    return backend;
+  }
+  /**
+   * Release current backend
+   */
+  async releaseBackend() {
+    if (this.currentBackend) {
+      console.log("[BackendManager] Releasing current backend");
+      await this.currentBackend.terminate();
+      this.currentBackend = void 0;
+    }
+  }
+  /**
+   * Release all backends
+   */
+  async releaseAllBackends() {
+    console.log("[BackendManager] Releasing all backends");
+    const backends = Array.from(this.backendInstances.entries());
+    for (const [type, backend] of backends) {
+      try {
+        await backend.terminate();
+        console.log("[BackendManager] Released backend:", type);
+      } catch (error) {
+        console.error("[BackendManager] Error releasing backend:", type, error);
+      }
+    }
+    this.backendInstances.clear();
+    this.currentBackend = void 0;
+  }
+  /**
+   * Execute operation on current backend
+   */
+  async executeOperation(operation, params) {
+    if (!this.currentBackend) {
+      console.log("[BackendManager] executeOperation FAILED: No backend");
+      throw new Error("No backend initialized. Call getOrCreateBackend first.");
+    }
+    const method = this.currentBackend[operation];
+    if (!method) {
+      throw new Error(`Unknown operation: ${operation}`);
+    }
+    console.log("[BackendManager] Executing operation:", operation);
+    return await method.call(this.currentBackend, params);
   }
 };
-var globalDiscoveryService = new GlobalDiscoveryService();
+var backendManager = BackendManager.getInstance();
 
-// src/debug/WatchChangeTracker.ts
-init_logging();
-init_inspection();
-init_events();
-var LOG13 = "WatchChangeTracker";
-var MAX_HISTORY_SIZE = 100;
-var WatchChangeTracker = class {
-  watchedVariables = /* @__PURE__ */ new Map();
-  changes = [];
-  enabled = false;
-  /**
-   * @brief Enable change tracking.
-   */
-  enable() {
-    this.enabled = true;
-    logger.info(LOG13, "Change tracking enabled");
-  }
-  /**
-   * @brief Disable change tracking.
-   */
-  disable() {
-    this.enabled = false;
-    logger.info(LOG13, "Change tracking disabled");
-  }
-  /**
-   * @brief Add variable to watch list.
-   *
-   * @param [in]  name  Variable name.
-   */
-  async watchVariable(session, name) {
-    const value = await this.evaluateVariable(session, name);
-    this.watchedVariables.set(name, {
-      name,
-      value,
-      lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    logger.debug(LOG13, `Added to watch: ${name} = ${value}`);
-  }
-  /**
-   * @brief Remove variable from watch list.
-   *
-   * @param [in]  name  Variable name.
-   */
-  unwatchVariable(name) {
-    this.watchedVariables.delete(name);
-    logger.debug(LOG13, `Removed from watch: ${name}`);
-  }
-  /**
-   * @brief Track and detect changes for all watched variables.
-   *
-   * @param [in]  session  VS Code debug session.
-   *
-   * @return Array of detected changes.
-   */
-  async trackAndDetect(session) {
-    if (!this.enabled) {
-      return [];
-    }
-    const newChanges = [];
-    for (const [name, watched] of this.watchedVariables) {
-      const newValue = await this.evaluateVariable(session, name);
-      const oldValue = watched.value;
-      if (oldValue !== null && oldValue !== newValue) {
-        const change = {
-          variable: name,
-          oldValue: oldValue || "null",
-          newValue: newValue || "null",
-          detectedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          location: await this.getCurrentLocation(session)
-        };
-        newChanges.push(change);
-        logger.info(LOG13, `Change detected: ${name} = ${oldValue} \u2192 ${newValue}`);
-      }
-      this.watchedVariables.set(name, {
-        name,
-        value: newValue,
-        lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-    this.changes.push(...newChanges);
-    if (this.changes.length > MAX_HISTORY_SIZE) {
-      this.changes = this.changes.slice(-MAX_HISTORY_SIZE);
-    }
-    return newChanges;
-  }
-  /**
-   * @brief Get all detected changes.
-   *
-   * @return Array of changes.
-   */
-  getChanges() {
-    return [...this.changes];
-  }
-  /**
-   * @brief Get recent changes (last N).
-   *
-   * @param [in]  limit  Maximum number of changes to return.
-   *
-   * @return Array of recent changes.
-   */
-  getRecentChanges(limit = 10) {
-    return this.changes.slice(-limit);
-  }
-  /**
-   * @brief Clear change history.
-   */
-  clearChanges() {
-    this.changes = [];
-    logger.debug(LOG13, "Change history cleared");
-  }
-  /**
-   * @brief Get list of watched variables.
-   *
-   * @return Array of watched variable names.
-   */
-  getWatchedVariables() {
-    return Array.from(this.watchedVariables.keys());
-  }
-  /**
-   * @brief Get current value of watched variable.
-   *
-   * @param [in]  name  Variable name.
-   *
-   * @return Current value or null.
-   */
-  getVariableValue(name) {
-    return this.watchedVariables.get(name)?.value || null;
-  }
-  // ==========================================================================
-  // Private Helpers
-  // ==========================================================================
-  /**
-   * @brief Evaluate variable value.
-   *
-   * @param [in]  session  VS Code debug session.
-   * @param [in]  name     Variable name.
-   *
-   * @return Variable value or null.
-   */
-  async evaluateVariable(session, name) {
-    try {
-      const frameId = getCurrentFrameId(session.id) ?? 0;
-      const result = await evaluate(session, {
-        expression: name,
-        frameId
-      });
-      if (result.success && result.result) {
-        return result.result;
-      }
-      return null;
-    } catch (e) {
-      logger.debug(LOG13, `Failed to evaluate ${name}: ${e.message}`);
-      return null;
-    }
-  }
-  /**
-   * @brief Get current debug location.
-   *
-   * @param [in]  session  VS Code debug session.
-   *
-   * @return Location info or undefined.
-   */
-  async getCurrentLocation(session) {
-    try {
-      const frameId = getCurrentFrameId(session.id) ?? 0;
-      const stackResponse = await session.customRequest("stackTrace", {
-        threadId: getCurrentThreadId(session.id) ?? 1,
-        startFrame: frameId,
-        levels: 1
-      });
-      if (stackResponse.stackFrames && stackResponse.stackFrames.length > 0) {
-        const frame = stackResponse.stackFrames[0];
-        return {
-          file: frame.source?.path || "unknown",
-          line: frame.line || 0,
-          function: frame.name
-        };
-      }
-      return void 0;
-    } catch (e) {
-      logger.debug(LOG13, `Failed to get location: ${e.message}`);
-      return void 0;
-    }
-  }
-};
-var watchChangeTracker = new WatchChangeTracker();
-
-// src/server/routes/subagents.routes.ts
-init_SubagentOrchestrator();
-async function handleSubagentsRequest(tasks) {
-  if (!Array.isArray(tasks)) {
-    return {
-      statusCode: 400,
-      body: {
-        success: false,
-        error: "Body must be an array of SubagentTask objects",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
+// src/server/router.ts
+var LOG = "Router";
+async function handleRequest(method, url, body, req) {
   try {
-    const results = await subagentOrchestrator.runParallelSubagents(tasks);
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: results,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
+    const result = await routeRequest(method, url, body);
+    return { statusCode: 200, body: result };
   } catch (error) {
+    console.error(`[${LOG}] Error:`, error.message);
     return {
       statusCode: 500,
       body: {
@@ -4166,751 +2762,270 @@ async function handleSubagentsRequest(tasks) {
     };
   }
 }
-
-// src/commands/CommandHandler.ts
-var vscode9 = __toESM(require("vscode"));
-var fs5 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
-init_logging();
-var LOG15 = "CommandHandler";
-var CommandHandler = class {
-  /**
-   * $DD DD-SW-9.1
-   *
-   * @brief Executes custom macro slash commands for the proxy.
-   *
-   * @param [in]  command   The command string starting with '/' (e.g., "/init").
-   * @param [in]  args      JSON object containing command-specific arguments.
-   *
-   * @return Promise resolving to command-specific result data.
-   *
-   * @throws Error if the command is unknown or arguments are invalid.
-   *
-   * $ARCH ARCH-3
-   */
-  async handleCommand(command, args) {
-    logger.info(LOG15, `Executing command: ${command}`);
-    switch (command) {
-      case "/init":
-        return this.handleInitCommand(args);
-      case "/debug-crash":
-        return this.handleDebugCrash();
-      case "/create-agent":
-        return this.handleCreateAgent(args);
-      default:
-        throw new Error(`Unknown command: ${command}`);
-    }
+async function routeRequest(method, url, body) {
+  const normalizePath = (p) => p.replace(/\/+$/, "") || "/";
+  const pathname = normalizePath(url.split("?")[0]);
+  console.log(`[${LOG}] Routing request: ${method} ${pathname}`);
+  if (method === "GET" && pathname === "/api/ping") {
+    return handlePing();
   }
-  /**************************************************************************
-   * Internal Command Handlers
-   **************************************************************************/
-  /**
-   * $DD DD-SW-9.2
-   *
-   * @brief Handle the /create-agent command.
-   */
-  async handleCreateAgent(args) {
-    if (!args || !args.name || !args.requirements) {
-      throw new Error(
-        "Missing 'name' or 'requirements' in /create-agent arguments"
-      );
-    }
-    const { subagentCreatorPrompt: subagentCreatorPrompt2 } = (init_prompts(), __toCommonJS(prompts_exports));
-    const { subagentOrchestrator: subagentOrchestrator2 } = (init_SubagentOrchestrator(), __toCommonJS(SubagentOrchestrator_exports));
-    const model = args.model || "qwen";
-    const prompt = `${subagentCreatorPrompt2}
-
-USER REQUIREMENTS:
-Name: ${args.name}
-Task: ${args.requirements}
-
-Generate the subagent .md file content now and save it.`;
-    logger.info(LOG15, `Spawning agent creator for: ${args.name}`);
-    const result = await subagentOrchestrator2.runParallelSubagents(
-      [
-        {
-          id: `create-agent-${args.name}`,
-          command: model,
-          args: ["-y"],
-          input: prompt
-        }
-      ],
-      12e4
-    );
-    return {
-      message: "Agent creation process initiated",
-      result: result[0]
-    };
+  if (method === "GET" && (pathname === "/api/status" || pathname === "/api/debug/status")) {
+    return handleStatus();
   }
-  /**
-   * $DD DD-SW-9.3
-   *
-   * @brief Handle the /init command.
-   */
-  async handleInitCommand(args) {
-    if (!vscode9.workspace.workspaceFolders || vscode9.workspace.workspaceFolders.length === 0) {
-      throw new Error("No workspace folders found to initialize");
-    }
-    const root = vscode9.workspace.workspaceFolders[0].uri.fsPath;
-    const contextFilePath = path4.join(root, "PROJECT_CONTEXT.md");
-    logger.info(LOG15, `Running /init on ${root}`);
-    let content = `# Project Context
-
-Generated by AI Debug Proxy \`/init\` command.
-
-`;
-    content += `## Workspace Root
-\`${root}\`
-
-`;
-    try {
-      const files = fs5.readdirSync(root);
-      content += `## Top Level Files
-`;
-      files.forEach((f) => {
-        content += `- ${f}
-`;
-      });
-      fs5.writeFileSync(contextFilePath, content, "utf-8");
-      return {
-        message: "Initialization complete",
-        contextFile: contextFilePath
-      };
-    } catch (e) {
-      throw new Error(`Failed to initialize: ${e.message}`);
-    }
+  if (method === "POST" && pathname === "/api/debugger/create") {
+    return handleCreateDebugger(body);
   }
-  /**
-   * @brief Handle the /debug-crash command (stub).
-   */
-  async handleDebugCrash() {
-    throw new Error("/debug-crash: not implemented");
-  }
-};
-var commandHandler = new CommandHandler();
-
-// src/lsp/LspService.ts
-var vscode10 = __toESM(require("vscode"));
-init_logging();
-var LOG16 = "LspService";
-var LspService = class {
-  /**************************************************************************
-   * Public Methods
-   **************************************************************************/
-  /**
-   * $DD DD-SW-7.1
-   *
-   * @brief Retrieve document symbols for a source file.
-   *
-   * Queries the language server to obtain structural symbols
-   * present within the document.
-   *
-   * @param [in]  fsPath      Absolute filesystem path to the source file.
-   *
-   * @return List of symbols discovered in the document.
-   *
-   * @retval DocumentSymbol[]      Hierarchical symbol tree
-   * @retval SymbolInformation[]   Flat symbol list
-   *
-   * @throws Error if the VSCode command invocation fails.
-   *
-   * [Satisfies $ARCH ARCH-6]
-   */
-  async getDocumentSymbols(fsPath) {
-    logger.debug(LOG16, `Getting document symbols for: ${fsPath}`);
-    try {
-      const uri = vscode10.Uri.file(fsPath);
-      const symbols = await vscode10.commands.executeCommand("vscode.executeDocumentSymbolProvider", uri);
-      return symbols || [];
-    } catch (e) {
-      logger.error(LOG16, `Failed to get symbols: ${e.message}`);
-      throw e;
-    }
-  }
-  /**
-   * $DD DD-SW-7.2
-   *
-   * @brief Retrieve references for a symbol at a given position.
-   *
-   * Queries the language server to obtain all locations where
-   * the symbol at the specified position is referenced.
-   *
-   * @param [in]  fsPath      Absolute filesystem path to the source file.
-   * @param [in]  line        0-based line index.
-   * @param [in]  character   0-based character index.
-   *
-   * @return List of reference locations.
-   *
-   * [Satisfies $ARCH ARCH-6]
-   */
-  async getReferences(fsPath, line, character) {
-    logger.debug(LOG16, `Getting references for: ${fsPath}:${line}:${character}`);
-    try {
-      const uri = vscode10.Uri.file(fsPath);
-      const position = new vscode10.Position(line, character);
-      const references = await vscode10.commands.executeCommand("vscode.executeReferenceProvider", uri, position);
-      return references || [];
-    } catch (e) {
-      logger.error(LOG16, `Failed to get references: ${e.message}`);
-      throw e;
-    }
-  }
-  /**
-   * $DD DD-SW-7.3
-   *
-   * @brief Retrieve incoming calls for a symbol.
-   *
-   * Analyzes the call hierarchy to find all functions/methods
-   * that call the symbol at the specified position.
-   *
-   * @param [in]  fsPath      Absolute filesystem path.
-   * @param [in]  line        0-based line index.
-   * @param [in]  character   0-based character index.
-   *
-   * @return List of incoming calls.
-   *
-   * [Satisfies $ARCH ARCH-6]
-   */
-  async getCallHierarchyIncoming(fsPath, line, character) {
-    logger.debug(
-      LOG16,
-      `Getting incoming calls for: ${fsPath}:${line}:${character}`
-    );
-    try {
-      const uri = vscode10.Uri.file(fsPath);
-      const position = new vscode10.Position(line, character);
-      const items = await vscode10.commands.executeCommand("vscode.prepareCallHierarchy", uri, position);
-      if (!items || items.length === 0) {
-        return [];
-      }
-      const incomingCalls = await vscode10.commands.executeCommand("vscode.provideIncomingCalls", items[0]);
-      return incomingCalls || [];
-    } catch (e) {
-      logger.error(LOG16, `Failed to get call hierarchy: ${e.message}`);
-      throw e;
-    }
-  }
-  /**
-   * $DD DD-SW-7.4
-   *
-   * @brief Retrieve outgoing calls from a symbol.
-   *
-   * Analyzes the call hierarchy to find all functions/methods
-   * called by the symbol at the specified position.
-   *
-   * @param [in]  fsPath      Absolute filesystem path.
-   * @param [in]  line        0-based line index.
-   * @param [in]  character   0-based character index.
-   *
-   * @return List of outgoing calls.
-   *
-   * [Satisfies $ARCH ARCH-6]
-   */
-  async getCallHierarchyOutgoing(fsPath, line, character) {
-    logger.debug(
-      LOG16,
-      `Getting outgoing calls for: ${fsPath}:${line}:${character}`
-    );
-    try {
-      const uri = vscode10.Uri.file(fsPath);
-      const position = new vscode10.Position(line, character);
-      const items = await vscode10.commands.executeCommand("vscode.prepareCallHierarchy", uri, position);
-      if (!items || items.length === 0) {
-        return [];
-      }
-      const outgoingCalls = await vscode10.commands.executeCommand("vscode.provideOutgoingCalls", items[0]);
-      return outgoingCalls || [];
-    } catch (e) {
-      logger.error(LOG16, `Failed to get outgoing call hierarchy: ${e.message}`);
-      throw e;
-    }
-  }
-};
-var lspService = new LspService();
-
-// src/server/router.ts
-init_logging();
-init_errors();
-var PKG_VERSION = (() => {
-  try {
-    const pkgPath = path5.join(__dirname, "..", "package.json");
-    return JSON.parse(fs6.readFileSync(pkgPath, "utf8")).version;
-  } catch {
-    return "unknown";
-  }
-})();
-var LOG17 = "Router";
-async function handleRequest(method, url, body, _req) {
-  const parsedUrl = new URL(url, "http://localhost");
-  const pathname = parsedUrl.pathname;
-  logger.debug(LOG17, "Routing request", { method, pathname });
-  const result = await handleSystemRouting(method, pathname, body, url) ?? await handleWatchRouting(method, pathname, body, url) ?? await handleSubagentRouting(method, pathname, body) ?? await handleCommandRouting(method, pathname, body) ?? await handleLspRouting(method, pathname, parsedUrl) ?? await handleDebugRouting(method, pathname, body);
-  if (result)
-    return result;
-  return {
-    statusCode: 404,
-    body: {
-      success: false,
-      error: `Not found: ${method} ${pathname}`,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    }
-  };
-}
-async function handleSystemRouting(method, pathname, body, url) {
-  if (method !== "GET" && method !== "POST")
-    return null;
-  if (pathname === "/api/ping") {
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: {
-          message: "pong",
-          version: PKG_VERSION,
-          operations: debugController.getOperations()
-        },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/status") {
-    const activeSession = getActiveSession();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: {
-          version: PKG_VERSION,
-          hasActiveSession: !!activeSession,
-          sessionId: activeSession?.id || null,
-          sessionName: activeSession?.name || null
-        },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/session/state" && method === "GET") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: {
-          success: false,
-          error: "No active debug session"
-        }
-      };
-    }
-    const threadId = getCurrentThreadId(activeSession.id);
-    const frameId = getCurrentFrameId(activeSession.id);
-    const location = getLastLocation(activeSession.id);
-    const stateValid = isStateValid(activeSession.id);
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: {
-          sessionId: activeSession.id,
-          threadId: threadId ?? null,
-          frameId: frameId ?? null,
-          location: location ?? null,
-          stateValid: stateValid ?? false
-        },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/session/set_context" && method === "POST") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: {
-          success: false,
-          error: "No active debug session"
-        }
-      };
-    }
-    if (!body?.threadId && !body?.frameId) {
-      return {
-        statusCode: 400,
-        body: {
-          success: false,
-          error: "Missing 'threadId' or 'frameId' parameter"
-        }
-      };
-    }
-    const { setCurrentThreadId: setCurrentThreadId2, setCurrentFrameId: setCurrentFrameId2 } = (init_events(), __toCommonJS(events_exports));
-    if (body.threadId !== void 0) {
-      setCurrentThreadId2(body.threadId, activeSession.id);
-    }
-    if (body.frameId !== void 0) {
-      setCurrentFrameId2(body.frameId, activeSession.id);
-    }
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: {
-          message: "Session context updated",
-          threadId: body.threadId ?? null,
-          frameId: body.frameId ?? null
-        },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/context" && method === "GET") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: {
-          success: false,
-          error: "No active debug session"
-        }
-      };
-    }
-    try {
-      const query = new URL(url, "http://localhost").searchParams;
-      const options = {};
-      const depth = query.get("depth");
-      if (depth)
-        options.depth = parseInt(depth, 10);
-      const include = query.get("include");
-      if (include)
-        options.include = include.split(",");
-      const exclude = query.get("exclude");
-      if (exclude)
-        options.exclude = exclude.split(",");
-      const sourceLines = query.get("sourceLines");
-      if (sourceLines)
-        options.sourceLines = parseInt(sourceLines, 10);
-      const context = await aggregateContext(activeSession, options);
-      return {
-        statusCode: 200,
-        body: {
-          success: true,
-          data: context,
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      };
-    } catch (e) {
-      logger.error(LOG17, `Context aggregation failed: ${e.message}`);
-      return {
-        statusCode: 500,
-        body: {
-          success: false,
-          error: `Context aggregation failed: ${e.message}`
-        }
-      };
-    }
-  }
-  return null;
-}
-async function handleWatchRouting(method, pathname, body, url) {
-  if (pathname === "/api/watch/suggest" && method === "GET") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: { success: false, error: "No active debug session" }
-      };
-    }
-    try {
-      const result = await watchSuggestService.getSuggestions(activeSession);
-      return {
-        statusCode: 200,
-        body: {
-          success: true,
-          data: result,
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      };
-    } catch (e) {
-      logger.error(LOG17, `Watch suggestions failed: ${e.message}`);
-      return {
-        statusCode: 500,
-        body: {
-          success: false,
-          error: `Watch suggestions failed: ${e.message}`
-        }
-      };
-    }
-  }
-  if (pathname === "/api/watch/auto" && method === "POST") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: { success: false, error: "No active debug session" }
-      };
-    }
-    watchChangeTracker.enable();
-    const patterns = body?.patterns || [];
-    if (patterns.length > 0) {
-      const globals = await globalDiscoveryService.discoverByPattern(patterns);
-      for (const global of globals) {
-        await watchChangeTracker.watchVariable(activeSession, global.name);
-      }
-    }
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: {
-          message: "Auto-watch enabled",
-          watchedCount: watchChangeTracker.getWatchedVariables().length
-        },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/watch/auto" && method === "DELETE") {
-    watchChangeTracker.disable();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { message: "Auto-watch disabled" },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/watch/changes" && method === "GET") {
-    const changes = watchChangeTracker.getChanges();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { changes },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/watch/clear_changes" && method === "POST") {
-    watchChangeTracker.clearChanges();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { message: "Change history cleared" },
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  if (pathname === "/api/discover/globals" && method === "GET") {
-    try {
-      const result = await globalDiscoveryService.discoverGlobals();
-      return {
-        statusCode: 200,
-        body: {
-          success: true,
-          data: result,
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      };
-    } catch (e) {
-      logger.error(LOG17, `Global discovery failed: ${e.message}`);
-      return {
-        statusCode: 500,
-        body: {
-          success: false,
-          error: `Global discovery failed: ${e.message}`
-        }
-      };
-    }
-  }
-  return null;
-}
-async function handleSubagentRouting(method, pathname, body) {
-  if (pathname === "/api/subagents" && method === "POST") {
-    return await handleSubagentsRequest(body);
-  }
-  return null;
-}
-async function handleCommandRouting(method, pathname, body) {
-  if (pathname === "/api/commands" && method === "POST") {
-    if (!body?.command) {
-      return {
-        statusCode: 400,
-        body: { success: false, error: "Missing 'command' field" }
-      };
-    }
-    try {
-      const result = await commandHandler.handleCommand(body.command, body.args);
-      return { statusCode: 200, body: { success: true, data: result } };
-    } catch (e) {
-      return { statusCode: 500, body: { success: false, error: e.message } };
-    }
-  }
-  return null;
-}
-async function handleLspRouting(method, pathname, parsedUrl) {
-  if (method !== "GET")
-    return null;
-  if (pathname === "/api/symbols") {
-    const fsPath = parsedUrl.searchParams.get("fsPath");
-    if (!fsPath)
-      return { statusCode: 400, body: { success: false, error: "Missing fsPath" } };
-    try {
-      const symbols = await lspService.getDocumentSymbols(fsPath);
-      return { statusCode: 200, body: { success: true, data: symbols } };
-    } catch (e) {
-      return { statusCode: 500, body: { success: false, error: e.message } };
-    }
-  }
-  if (pathname === "/api/references") {
-    const fsPath = parsedUrl.searchParams.get("fsPath");
-    const line = parseInt(parsedUrl.searchParams.get("line") || "-1");
-    const char = parseInt(parsedUrl.searchParams.get("character") || "-1");
-    if (!fsPath || line < 0 || char < 0)
-      return { statusCode: 400, body: { success: false, error: "Missing params" } };
-    try {
-      const refs = await lspService.getReferences(fsPath, line, char);
-      return { statusCode: 200, body: { success: true, data: refs } };
-    } catch (e) {
-      return { statusCode: 500, body: { success: false, error: e.message } };
-    }
-  }
-  if (pathname === "/api/call-hierarchy") {
-    const fsPath = parsedUrl.searchParams.get("fsPath");
-    const line = parseInt(parsedUrl.searchParams.get("line") || "-1");
-    const char = parseInt(parsedUrl.searchParams.get("character") || "-1");
-    const dir = parsedUrl.searchParams.get("direction") || "incoming";
-    if (!fsPath || line < 0 || char < 0)
-      return { statusCode: 400, body: { success: false, error: "Missing params" } };
-    try {
-      const calls = dir === "outgoing" ? await lspService.getCallHierarchyOutgoing(fsPath, line, char) : await lspService.getCallHierarchyIncoming(fsPath, line, char);
-      return { statusCode: 200, body: { success: true, data: calls } };
-    } catch (e) {
-      return { statusCode: 500, body: { success: false, error: e.message } };
-    }
-  }
-  return null;
-}
-async function handleDebugRouting(method, pathname, body) {
-  if (method !== "POST")
-    return null;
-  if (pathname === "/api/debug") {
+  if (method === "POST" && (pathname === "/api/debug" || pathname === "/api/debug/execute_operation")) {
     return handleDebugOperation(body);
   }
-  if (pathname === "/api/debug/batch") {
-    return handleBatchOperations(body);
+  console.log(`[${LOG}] No route matched for ${method} ${pathname}`);
+  throw new Error(`Unknown route: ${method} ${pathname}`);
+}
+function handlePing() {
+  return {
+    success: true,
+    data: {
+      message: "pong",
+      version: "v3.a0",
+      operations: [
+        // Session
+        "launch",
+        "attach",
+        "terminate",
+        "restart",
+        // Execution
+        "continue",
+        "next",
+        "step_in",
+        "step_out",
+        "pause",
+        "jump",
+        "until",
+        // Frame navigation
+        "up",
+        "down",
+        "goto_frame",
+        // Breakpoints
+        "set_breakpoint",
+        "set_temp_breakpoint",
+        "remove_breakpoint",
+        "remove_all_breakpoints_in_file",
+        "get_active_breakpoints",
+        // Inspection
+        "stack_trace",
+        "get_variables",
+        "get_arguments",
+        "get_globals",
+        "evaluate",
+        "get_registers",
+        "read_memory",
+        "write_memory",
+        "list_source",
+        "get_source",
+        "pretty_print",
+        "whatis",
+        "execute_statement",
+        "list_all_locals",
+        "get_scope_preview",
+        // Info
+        "get_last_stop_info",
+        "get_capabilities"
+      ],
+      operationCount: 38
+    },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function handleStatus() {
+  const backend = backendManager.getCurrentBackend();
+  const stopInfo = backend ? await backend.getLastStopInfo() : void 0;
+  const isRunning = backend ? backend.isRunning() : false;
+  return {
+    success: true,
+    data: {
+      version: "v3.a0",
+      hasActiveSession: !!backend,
+      isRunning,
+      status: isRunning ? "running" : "stopped",
+      lastStopInfo: isRunning ? void 0 : stopInfo
+    },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function handleCreateDebugger(body) {
+  const { backendType, gdbPath, lauterbachHost, lauterbachPort } = body;
+  if (!backendType) {
+    throw new Error("Missing backendType field");
   }
-  return null;
+  console.log(`[${LOG}] Creating debugger: ${backendType}`);
+  const config = {
+    backendType,
+    gdbPath,
+    lauterbachHost,
+    lauterbachPort
+  };
+  const backend = backendManager.createBackend(backendType, config);
+  await backend.initialize(config);
+  return {
+    success: true,
+    data: {
+      backendType,
+      isRunning: backend.isRunning()
+    },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+var launchDelegate = null;
+function setLaunchDelegate(delegate) {
+  launchDelegate = delegate;
 }
 async function handleDebugOperation(body) {
   if (!body || typeof body !== "object") {
-    return {
-      statusCode: 400,
-      body: {
-        success: false,
-        error: "Request body must be a JSON object with 'operation' field",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
+    throw new Error("Request body must be a JSON object");
   }
   const { operation, params } = body;
   if (!operation || typeof operation !== "string") {
-    return {
-      statusCode: 400,
-      body: {
-        success: false,
-        error: "Missing or invalid 'operation' field",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
+    throw new Error("Missing or invalid 'operation' field");
   }
-  const validation = validateOperationArgs(operation, params);
-  if (!validation.isValid) {
-    logger.warn(LOG17, "validation.failed", { operation, message: validation.message });
-    return {
-      statusCode: 400,
-      body: {
-        success: false,
-        operation,
-        error: validation.message,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
+  if (operation === "launch") {
+    const backendType = params?.backendType || "gdb";
+    const config = {
+      backendType,
+      gdbPath: params?.gdbPath || "gdb"
     };
-  }
-  try {
-    const result = await debugController.executeOperation(
-      operation,
-      validation.params
-    );
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        operation,
-        data: result,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    console.log(`[${LOG}] Creating backend for launch: ${backendType}`);
+    if (launchDelegate) {
+      console.log(`[${LOG}] Delegating launch to VS Code UI via callback`);
+      const success = await launchDelegate(params);
+      if (!success) {
+        throw new Error("Failed to start VS Code debugging session");
       }
-    };
-  } catch (error) {
-    logger.error(LOG17, "operation.failed", { operation, error: error.message });
-    if (error instanceof DebugError) {
       return {
-        statusCode: 400,
-        body: {
-          success: false,
-          operation,
-          error: error.toJSON(),
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        }
+        success: true,
+        sessionId: "v3-session-vscode"
       };
     }
+    const backend2 = backendManager.createBackend(backendType, config);
+    await backend2.initialize(config);
+    await backend2.launch(params);
     return {
-      statusCode: 500,
-      body: {
-        success: false,
-        operation,
-        error: error.message,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
+      success: true,
+      sessionId: "v3-session",
+      stopReason: params.stopOnEntry ? "entry" : "breakpoint"
     };
   }
+  const backend = backendManager.getCurrentBackend();
+  if (!backend) {
+    throw new Error("No debug backend initialized. Launch a debug session first.");
+  }
+  console.log(`[${LOG}] Executing operation: ${operation}`);
+  const result = await executeBackendOperation(backend, operation, params);
+  return {
+    success: true,
+    operation,
+    data: result,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
 }
-async function handleBatchOperations(body) {
-  if (!body || !Array.isArray(body.operations)) {
-    return {
-      statusCode: 400,
-      body: {
-        success: false,
-        error: "Request body must contain an 'operations' array",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  }
-  try {
-    const result = await debugController.executeBatchOperations(
-      body.operations,
-      body.parallel
-    );
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: result,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
-  } catch (error) {
-    logger.error(LOG17, "batch.failed", { error: error.message });
-    return {
-      statusCode: 500,
-      body: {
-        success: false,
-        error: error.message,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    };
+async function executeBackendOperation(backend, operation, params) {
+  switch (operation) {
+    case "launch":
+      return await backend.launch(params);
+    case "attach":
+      return await backend.attach(params);
+    case "terminate":
+      return await backend.terminate();
+    case "continue":
+      await backend.continue();
+      return { success: true };
+    case "next":
+    case "stepOver":
+    case "step_over":
+      await backend.stepOver();
+      return { success: true };
+    case "step_in":
+    case "stepIn":
+      await backend.stepIn();
+      return { success: true };
+    case "step_out":
+    case "stepOut":
+      await backend.stepOut();
+      return { success: true };
+    case "pause":
+      await backend.pause();
+      return { success: true };
+    case "jump":
+      await backend.jumpToLine(params?.line, params?.file);
+      return { success: true };
+    case "until":
+      await backend.runUntilLine(params?.line, params?.file);
+      return { success: true };
+    case "restart":
+      await backend.restart();
+      return { success: true };
+    case "up":
+    case "frame_up":
+      await backend.frameUp();
+      return { success: true };
+    case "down":
+    case "frame_down":
+      await backend.frameDown();
+      return { success: true };
+    case "goto_frame":
+      await backend.gotoFrame(params?.frameId);
+      return { success: true };
+    case "set_breakpoint":
+      return await backend.setBreakpoint(params?.location);
+    case "set_temp_breakpoint":
+      return await backend.setTempBreakpoint(params?.location);
+    case "remove_breakpoint":
+      return await backend.removeBreakpoint(params?.id);
+    case "remove_all_breakpoints_in_file":
+      await backend.removeAllBreakpointsInFile(params?.filePath);
+      return { success: true };
+    case "get_active_breakpoints":
+      return await backend.getBreakpoints();
+    case "stack_trace":
+      return await backend.getStackTrace(params?.threadId);
+    case "get_variables":
+      return await backend.getVariables(params?.frameId);
+    case "get_arguments":
+      return await backend.getArguments(params?.frameId);
+    case "get_globals":
+      return await backend.getGlobals();
+    case "evaluate":
+      return await backend.evaluate(params?.expression, params?.frameId);
+    case "get_registers":
+      return await backend.getRegisters();
+    case "read_memory":
+      return await backend.readMemory(params?.address, params?.length);
+    case "write_memory":
+      return await backend.writeMemory(params?.address, params?.data);
+    case "list_source":
+      return await backend.listSource(params);
+    case "get_source":
+      return await backend.getSource(params?.expression);
+    case "pretty_print":
+      return await backend.prettyPrint(params?.expression);
+    case "whatis":
+      return await backend.whatis(params?.expression);
+    case "execute_statement":
+      return await backend.executeStatement(params?.statement);
+    case "list_all_locals":
+      return await backend.listAllLocals();
+    case "get_scope_preview":
+      return await backend.getScopePreview();
+    case "get_last_stop_info":
+      return await backend.getLastStopInfo();
+    case "get_capabilities":
+      return backend.getCapabilities();
+    default:
+      throw new Error(`Unknown operation: ${operation}`);
   }
 }
 
 // src/server/HttpServer.ts
-var LOG18 = "HttpServer";
+var LOG2 = "HttpServer";
 var MAX_BODY_SIZE = 1024 * 1024;
 var HttpServer = class {
   server = null;
@@ -4938,7 +3053,7 @@ var HttpServer = class {
    */
   async start() {
     if (this.server) {
-      logger.warn(LOG18, "server.already_running");
+      logger.warn(LOG2, "server.already_running");
       return;
     }
     return new Promise((resolve, reject) => {
@@ -4947,15 +3062,15 @@ var HttpServer = class {
       });
       this.server.on("error", (err) => {
         if (err.code === "EADDRINUSE") {
-          logger.error(LOG18, "port.in_use", { port: this.port });
+          logger.error(LOG2, "port.in_use", { port: this.port });
           reject(new Error(`Port ${this.port} in use`));
         } else {
-          logger.error(LOG18, "server.error", { error: err.message });
+          logger.error(LOG2, "server.error", { error: err.message });
           reject(err);
         }
       });
       this.server.listen(this.port, "127.0.0.1", () => {
-        logger.info(LOG18, "server.listening", { url: `http://127.0.0.1:${this.port}` });
+        logger.info(LOG2, "server.listening", { url: `http://127.0.0.1:${this.port}` });
         resolve();
       });
     });
@@ -4975,7 +3090,7 @@ var HttpServer = class {
     return new Promise((resolve) => {
       this.server.close(() => {
         this.server = null;
-        logger.info(LOG18, "server.stopped");
+        logger.info(LOG2, "server.stopped");
         resolve();
       });
     });
@@ -5027,6 +3142,7 @@ var HttpServer = class {
     const startTime = Date.now();
     const method = req.method || "GET";
     const url = req.url || "/";
+    console.log(`[${LOG2}] Incoming request: ${method} ${url}`);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -5047,10 +3163,10 @@ var HttpServer = class {
       res.writeHead(status);
       res.end(responseBody);
       const elapsed = Date.now() - startTime;
-      logger.info(LOG18, "request.handled", { method, url, status, elapsed });
+      logger.info(LOG2, "request.handled", { method, url, status, elapsed });
     } catch (error) {
       const elapsed = Date.now() - startTime;
-      logger.error(LOG18, "request.failed", { method, url, elapsed, error: error.message });
+      logger.error(LOG2, "request.failed", { method, url, elapsed, error: error.message });
       if (!res.headersSent && !res.destroyed) {
         try {
           res.writeHead(500);
@@ -5062,7 +3178,7 @@ var HttpServer = class {
             })
           );
         } catch (writeErr) {
-          logger.warn(LOG18, "error_response.failed", { error: writeErr.message });
+          logger.warn(LOG2, "error_response.failed", { error: writeErr.message });
         }
       }
     }
@@ -5104,127 +3220,617 @@ var HttpServer = class {
   }
 };
 
-// src/extension.ts
-init_events();
-init_logging();
-var LOG19 = "Extension";
+// src/protocol/dap/DebugAdapter.ts
+var import_debugadapter = __toESM(require_main());
+var fs3 = __toESM(require("fs"));
+var LOG_FILE3 = "/home/datdang/working/common_dev/ai_vscode_debug/proxy.log";
+var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDebugSession {
+  static THREAD_ID = 1;
+  variableHandles = new import_debugadapter.Handles();
+  breakpointIdMap = /* @__PURE__ */ new Map();
+  backend;
+  isRunning = false;
+  stopRequested = false;
+  constructor() {
+    super("ai-debug.debug");
+    this.setDebuggerLinesStartAt1(true);
+    this.setDebuggerColumnsStartAt1(true);
+  }
+  /**
+   * Initialize debug adapter
+   */
+  initializeRequest(response, args) {
+    this.log(`Initialize request: ${JSON.stringify(args, null, 2)}`);
+    response.body = response.body || {};
+    response.body.supportsConfigurationDoneRequest = true;
+    response.body.supportsConditionalBreakpoints = true;
+    response.body.supportsHitConditionalBreakpoints = true;
+    response.body.supportsEvaluateForHovers = true;
+    response.body.supportsGotoTargetsRequest = true;
+    response.body.supportsRestartRequest = true;
+    response.body.supportsDisassembleRequest = true;
+    response.body.supportsReadMemoryRequest = true;
+    response.body.supportsWriteMemoryRequest = true;
+    response.body.supportsSetVariable = true;
+    response.body.supportsTerminateRequest = true;
+    response.body.supportsSteppingGranularity = false;
+    response.body.supportsInstructionBreakpoints = false;
+    this.sendResponse(response);
+    this.log("Initialize response sent");
+  }
+  /**
+   * Launch debug session
+   */
+  async launchRequest(response, args) {
+    try {
+      this.log(`Launch request: ${JSON.stringify(args, null, 2)}`);
+      if (!fs3.existsSync(args.program)) {
+        this.sendErrorResponse(response, {
+          id: 1,
+          format: `Program not found: ${args.program}`
+        });
+        return;
+      }
+      const config = {
+        backendType: args.backendType || "gdb",
+        gdbPath: args.gdbPath || "gdb"
+      };
+      this.backend = backendManager.createBackend(config.backendType, config);
+      this.setupBackendEvents();
+      await this.backend.initialize(config);
+      await this.backend.launch({
+        program: args.program,
+        cwd: args.cwd,
+        stopOnEntry: args.stopOnEntry ?? true
+      });
+      this.sendEvent(new import_debugadapter.InitializedEvent());
+      this.sendResponse(response);
+      this.log("Launch complete");
+    } catch (error) {
+      this.log(`Launch error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 2,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Setup backend event listeners
+   */
+  setupBackendEvents() {
+    if (!this.backend)
+      return;
+    this.backend.on("stopped", (event) => {
+      this.log(`Backend stopped event: ${event.reason}`);
+      this.sendEvent(new import_debugadapter.StoppedEvent(event.reason, event.threadId));
+    });
+    this.backend.on("running", () => {
+      this.log("Backend running event");
+      this.isRunning = true;
+      this.sendEvent(new import_debugadapter.ContinuedEvent(_AIDebugSession.THREAD_ID));
+    });
+    this.backend.on("exited", (code) => {
+      this.log(`Backend exited with code: ${code}`);
+      this.isRunning = false;
+      this.sendEvent(new import_debugadapter.TerminatedEvent());
+    });
+    this.backend.on("output", (output, category) => {
+      this.sendEvent(new import_debugadapter.OutputEvent(output, category));
+    });
+  }
+  /**
+   * Attach to running process
+   */
+  async attachRequest(response, args) {
+    try {
+      this.log(`Attach request: PID ${args.processId}`);
+      const config = {
+        backendType: "gdb",
+        gdbPath: args.gdbPath || "gdb"
+      };
+      this.backend = backendManager.createBackend(config.backendType, config);
+      await this.backend.initialize(config);
+      await this.backend.attach({
+        processId: args.processId
+      });
+      this.sendEvent(new import_debugadapter.InitializedEvent());
+      this.sendResponse(response);
+      this.log("Attach complete");
+    } catch (error) {
+      this.log(`Attach error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 3,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Continue execution
+   */
+  async continueRequest(response, args) {
+    try {
+      this.log("Continue request");
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 4,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      await this.backend.continue();
+      this.isRunning = true;
+      this.sendResponse(response);
+      this.log("Continue response sent - execution running");
+    } catch (error) {
+      this.log(`Continue error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 5,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Step over (next line)
+   */
+  async nextRequest(response, args) {
+    try {
+      this.log("Next request");
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 6,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      await this.backend.stepOver();
+      this.sendResponse(response);
+      this.log("Next response sent - stepping running");
+    } catch (error) {
+      this.log(`Next error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 7,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Step into function
+   */
+  async stepInRequest(response, args) {
+    try {
+      this.log("Step in request");
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 8,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      await this.backend.stepIn();
+      this.sendResponse(response);
+      this.log("Step in response sent");
+    } catch (error) {
+      this.log(`Step in error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 9,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Step out of function
+   */
+  async stepOutRequest(response, args) {
+    try {
+      this.log("Step out request");
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 10,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      await this.backend.stepOut();
+      this.sendResponse(response);
+      this.log("Step out response sent");
+    } catch (error) {
+      this.log(`Step out error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 11,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Set breakpoints
+   */
+  async setBreakpointsRequest(response, args) {
+    try {
+      this.log(`Set breakpoints: ${JSON.stringify(args, null, 2)}`);
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 12,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      const actualBreakpoints = [];
+      const sourcePath = args.source.path || "";
+      for (const sourceBp of args.breakpoints || []) {
+        const result = await this.backend.setBreakpoint({
+          path: sourcePath,
+          line: sourceBp.line
+        });
+        const dapId = Date.now() + Math.random();
+        this.breakpointIdMap.set(dapId, result.id);
+        const bp = new import_debugadapter.Breakpoint(
+          result.verified,
+          sourceBp.line,
+          void 0,
+          args.source
+        );
+        bp.id = dapId;
+        actualBreakpoints.push(bp);
+      }
+      response.body = { breakpoints: actualBreakpoints };
+      this.sendResponse(response);
+      this.log("Set breakpoints complete");
+    } catch (error) {
+      this.log(`Set breakpoints error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 13,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Get stack trace
+   */
+  async stackTraceRequest(response, args) {
+    try {
+      this.log("Stack trace request");
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 14,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      const frames = await this.backend.getStackTrace(args.threadId);
+      const stackFrames = frames.map((frame) => ({
+        id: frame.id,
+        name: frame.name,
+        source: {
+          name: frame.path?.split("/").pop(),
+          path: frame.path
+        },
+        line: frame.line,
+        column: frame.column || 0
+      }));
+      response.body = {
+        stackFrames,
+        totalFrames: stackFrames.length
+      };
+      this.log(`Stack trace response: ${JSON.stringify(response.body, null, 2)}`);
+      this.sendResponse(response);
+      this.log("Stack trace complete");
+    } catch (error) {
+      this.log(`Stack trace error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 15,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Get scopes
+   */
+  async scopesRequest(response, args) {
+    try {
+      this.log("Scopes request");
+      const scopes = [
+        new import_debugadapter.Scope("Locals", this.variableHandles.create("locals"), false),
+        new import_debugadapter.Scope("Arguments", this.variableHandles.create("arguments"), false),
+        new import_debugadapter.Scope("Globals", this.variableHandles.create("globals"), false)
+      ];
+      response.body = { scopes };
+      this.log(`Scopes response: ${JSON.stringify(response.body, null, 2)}`);
+      this.sendResponse(response);
+      this.log("Scopes complete");
+    } catch (error) {
+      this.log(`Scopes error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 16,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Get variables
+   */
+  async variablesRequest(response, args) {
+    try {
+      this.log("Variables request");
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 17,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      const scopeType = this.variableHandles.get(args.variablesReference);
+      let variables = [];
+      if (scopeType === "locals") {
+        const vars = await this.backend.getVariables();
+        variables = vars.map((v) => new import_debugadapter.Variable(v.name, v.value || "undefined"));
+      } else if (scopeType === "arguments") {
+        const vars = await this.backend.getArguments();
+        variables = vars.map((v) => new import_debugadapter.Variable(v.name, v.value || "undefined"));
+      } else if (scopeType === "globals") {
+        const vars = await this.backend.getGlobals();
+        variables = vars.map((v) => new import_debugadapter.Variable(v.name, v.value || "undefined"));
+      }
+      response.body = { variables };
+      this.log(`Variables response: ${JSON.stringify(response.body, null, 2)}`);
+      this.sendResponse(response);
+      this.log("Variables complete");
+    } catch (error) {
+      this.log(`Variables error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 18,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Evaluate expression
+   */
+  async evaluateRequest(response, args) {
+    try {
+      this.log(`Evaluate request: ${args.expression}`);
+      if (!this.backend) {
+        this.sendErrorResponse(response, {
+          id: 19,
+          format: "Debugger not initialized"
+        });
+        return;
+      }
+      const result = await this.backend.evaluate(args.expression, args.frameId);
+      response.body = {
+        result: result.value,
+        type: result.type,
+        variablesReference: result.variablesReference || 0
+      };
+      this.sendResponse(response);
+      this.log("Evaluate complete");
+    } catch (error) {
+      this.log(`Evaluate error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 20,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Restart session
+   */
+  async restartRequest(response, args) {
+    try {
+      this.log("Restart request");
+      if (this.backend) {
+        await this.backend.terminate();
+        this.backend = void 0;
+      }
+      this.sendResponse(response);
+      this.log("Restart complete");
+    } catch (error) {
+      this.log(`Restart error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 21,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Terminate session
+   */
+  async terminateRequest(response, args) {
+    try {
+      this.log("Terminate request");
+      if (this.backend) {
+        await this.backend.terminate();
+        this.backend = void 0;
+      }
+      this.sendEvent(new import_debugadapter.TerminatedEvent());
+      this.sendResponse(response);
+      this.log("Terminate complete");
+    } catch (error) {
+      this.log(`Terminate error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 22,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Disconnect from debuggee
+   */
+  async disconnectRequest(response, args) {
+    try {
+      this.log("Disconnect request");
+      if (this.backend) {
+        await this.backend.terminate();
+        this.backend = void 0;
+      }
+      this.sendResponse(response);
+      this.log("Disconnect complete");
+    } catch (error) {
+      this.log(`Disconnect error: ${error.message}`);
+      this.sendErrorResponse(response, {
+        id: 23,
+        format: error.message
+      });
+    }
+  }
+  /**
+   * Get threads
+   */
+  threadsRequest(response) {
+    this.log("Threads request");
+    response.body = {
+      threads: [
+        new import_debugadapter.Thread(_AIDebugSession.THREAD_ID, "Thread 1")
+      ]
+    };
+    this.sendResponse(response);
+    this.log("Threads complete");
+  }
+  /**
+   * Configuration done (all breakpoints set)
+   */
+  async configurationDoneRequest(response, args) {
+    this.log("Configuration done");
+    this.sendResponse(response);
+    if (this.backend && !this.isRunning) {
+      this.log("Starting backend execution");
+      try {
+        await this.backend.start();
+        this.isRunning = true;
+      } catch (error) {
+        this.log(`Failed to start backend: ${error.message}`);
+      }
+    }
+  }
+  /**
+   * Log helper
+   */
+  log(message) {
+    const logMsg = `[AIDebugSession][${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
+`;
+    console.log(logMsg.trim());
+    try {
+      fs3.appendFileSync(LOG_FILE3, logMsg);
+    } catch (e) {
+    }
+  }
+};
+
+// src/vscode/extension.ts
+var LOG3 = "Extension";
 var server = null;
 function activate(context) {
-  logger.info(LOG19, "AI Debug Proxy activating...");
-  const config = vscode11.workspace.getConfiguration("aiDebugProxy");
+  logger.info(LOG3, "AI Debug Proxy v3.0 activating...");
+  const config = vscode2.workspace.getConfiguration("aiDebugProxy");
   const port = config.get("port", 9999);
   const autoStart = config.get("autoStart", true);
   const logLevel = config.get("logLevel", "info");
   setLogLevel(logLevel);
-  registerDebugEventListeners(context);
+  setLaunchDelegate(async (params) => {
+    logger.info(LOG3, `Triggering VS Code debug UI for AI Proxy...`);
+    let workspaceFolder = void 0;
+    if (vscode2.workspace.workspaceFolders && vscode2.workspace.workspaceFolders.length > 0) {
+      workspaceFolder = vscode2.workspace.workspaceFolders[0];
+    }
+    return await vscode2.debug.startDebugging(workspaceFolder, {
+      type: "ai-debug",
+      request: "launch",
+      name: `AI Debug Proxy: ${params.program || "Unknown"}`,
+      ...params
+    });
+  });
   server = new HttpServer(port);
+  server.start().then(() => {
+    logger.info(LOG3, `HTTP Server started on port ${port}`);
+  }).catch((error) => {
+    logger.error(LOG3, `Failed to start HTTP Server: ${error.message}`);
+  });
+  const debugAdapterFactory = vscode2.debug.registerDebugAdapterDescriptorFactory(
+    "ai-debug",
+    {
+      createDebugAdapterDescriptor: (session) => {
+        logger.info(LOG3, `Creating DebugAdapter for session: ${session.id} (${session.name})`);
+        const adapter = new AIDebugSession();
+        logger.info(LOG3, "DebugAdapter instance created");
+        return new vscode2.DebugAdapterInlineImplementation(adapter);
+      }
+    }
+  );
+  context.subscriptions.push(debugAdapterFactory);
+  logger.info(LOG3, 'Debug Adapter Factory registered for "ai-debug" type');
   context.subscriptions.push(
-    vscode11.commands.registerCommand("ai-debug-proxy.start", async () => {
+    vscode2.commands.registerCommand("ai-debug-proxy.start", async () => {
       if (server?.isRunning()) {
-        vscode11.window.showInformationMessage(
+        vscode2.window.showInformationMessage(
           `AI Debug Proxy already running on port ${server.getPort()}`
         );
         return;
       }
       try {
-        const currentConfig = vscode11.workspace.getConfiguration("aiDebugProxy");
+        const currentConfig = vscode2.workspace.getConfiguration("aiDebugProxy");
         const currentPort = currentConfig.get("port", 9999);
         if (!server || server.getPort() !== currentPort) {
           server = new HttpServer(currentPort);
         }
         await server.start();
-        vscode11.window.showInformationMessage(
+        vscode2.window.showInformationMessage(
           `AI Debug Proxy started on port ${currentPort}`
         );
       } catch (e) {
-        vscode11.window.showErrorMessage(
+        vscode2.window.showErrorMessage(
           `Failed to start AI Debug Proxy: ${e.message}`
         );
       }
     })
   );
   context.subscriptions.push(
-    vscode11.commands.registerCommand("ai-debug-proxy.stop", async () => {
+    vscode2.commands.registerCommand("ai-debug-proxy.stop", async () => {
       if (!server?.isRunning()) {
-        vscode11.window.showInformationMessage("AI Debug Proxy is not running");
+        vscode2.window.showInformationMessage("AI Debug Proxy is not running");
         return;
       }
       await server.stop();
-      vscode11.window.showInformationMessage("AI Debug Proxy stopped");
+      vscode2.window.showInformationMessage("AI Debug Proxy stopped");
     })
   );
   context.subscriptions.push(
-    vscode11.commands.registerCommand("ai-debug-proxy.showLog", () => {
+    vscode2.commands.registerCommand("ai-debug-proxy.showLog", () => {
       outputChannel.show();
     })
   );
   context.subscriptions.push(
-    vscode11.commands.registerCommand("ai-debug-proxy.installCLI", async () => {
-      const src = path6.join(context.extensionPath, "resources", "ai-debug.sh");
-      const installDir = path6.join(os.homedir(), ".local", "lib", "ai-debug-proxy");
-      const target = path6.join(installDir, "ai-debug.sh");
-      const sourceLine = `
-# AI Debug Proxy CLI
-source "${target}"
-`;
+    vscode2.commands.registerCommand("ai-debug-proxy.installCLI", async () => {
+      const src = path2.join(context.extensionPath, "resources", "ai-debug.sh");
+      const installDir = path2.join(os.homedir(), ".local", "lib", "ai-debug-proxy");
+      const dest = path2.join(installDir, "ai-debug.sh");
       try {
-        fs7.mkdirSync(installDir, { recursive: true });
-        fs7.copyFileSync(src, target);
-        fs7.chmodSync(target, 493);
-        const rcFiles = [
-          path6.join(os.homedir(), ".bashrc"),
-          path6.join(os.homedir(), ".zshrc")
-        ];
-        const sourceCheck = `source "${target}"`;
-        const appended = [];
-        for (const rc of rcFiles) {
-          try {
-            const content = fs7.existsSync(rc) ? fs7.readFileSync(rc, "utf8") : "";
-            if (!content.includes(sourceCheck)) {
-              fs7.appendFileSync(rc, sourceLine);
-              appended.push(path6.basename(rc));
-            }
-          } catch {
-          }
-        }
-        const rcMsg = appended.length > 0 ? ` Source line added to: ${appended.join(", ")}.` : " Source line already present in shell rc files.";
-        const open = await vscode11.window.showInformationMessage(
-          `AI Debug CLI installed to ${target}.${rcMsg} Open a new terminal to use ai_launch, ai_bp, etc.`,
-          "Open file"
-        );
-        if (open) {
-          vscode11.window.showTextDocument(vscode11.Uri.file(target));
+        await fs4.promises.mkdir(installDir, { recursive: true });
+        await fs4.promises.copyFile(src, dest);
+        await fs4.promises.chmod(dest, 493);
+        const shellConfig = vscode2.workspace.getConfiguration("terminal.integrated.env");
+        const platform2 = os.platform();
+        const shellEnv = platform2 === "win32" ? "windows" : platform2 === "darwin" ? "osx" : "linux";
+        const currentPath = process.env.PATH || "";
+        if (!currentPath.includes(installDir)) {
+          const msg = `AI Debug Proxy CLI installed to ${dest}. Add ${installDir} to your PATH to use the 'ai-debug' command.`;
+          vscode2.window.showInformationMessage(msg);
+        } else {
+          vscode2.window.showInformationMessage(`AI Debug Proxy CLI installed to ${dest}. You can now use the 'ai-debug' command.`);
         }
       } catch (e) {
-        vscode11.window.showErrorMessage(
-          `AI Debug Proxy: Failed to install CLI \u2014 ${e.message}`
-        );
+        vscode2.window.showErrorMessage(`Failed to install CLI: ${e.message}`);
       }
     })
   );
-  context.subscriptions.push(
-    vscode11.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("aiDebugProxy.logLevel")) {
-        const newLevel = vscode11.workspace.getConfiguration("aiDebugProxy").get("logLevel", "info");
-        setLogLevel(newLevel);
-        logger.info(LOG19, `Log level changed to: ${newLevel}`);
-      }
-    })
-  );
-  if (autoStart) {
-    server.start().then(
-      () => logger.info(LOG19, `Auto-started on port ${port}`),
-      (err) => logger.error(LOG19, `Auto-start failed: ${err.message}`)
-    );
-  }
-  logger.info(LOG19, "AI Debug Proxy activated");
+  logger.info(LOG3, "AI Debug Proxy v3.0 activated successfully");
 }
-function deactivate() {
-  logger.info(LOG19, "AI Debug Proxy deactivating...");
-  if (server?.isRunning()) {
-    server.stop();
+async function deactivate() {
+  logger.info(LOG3, "Deactivating AI Debug Proxy...");
+  if (server) {
+    await server.stop();
+    server = null;
+    logger.info(LOG3, "HTTP Server stopped");
   }
-  outputChannel.dispose();
+  logger.info(LOG3, "AI Debug Proxy deactivated");
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
