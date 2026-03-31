@@ -440,7 +440,7 @@ describe('Router - PI3 Operations', () => {
 
     describe('Launch Operation', () => {
         it('launch without delegate creates backend and calls launch()', async () => {
-            setLaunchDelegate(null);
+            setLaunchDelegate(null as any);
             mockBackend.initialize.mockResolvedValue(undefined);
             mockBackend.launch.mockResolvedValue(undefined);
             const result = await handleRequest('POST', '/api/debug', {
@@ -457,7 +457,7 @@ describe('Router - PI3 Operations', () => {
             }, {} as any);
             expect(result.statusCode).toBe(200);
             expect(result.body.sessionId).toBe('v3-session-vscode');
-            setLaunchDelegate(null);
+            setLaunchDelegate(null as any);
         });
 
         it('launch with delegate that returns false → 500', async () => {
@@ -466,7 +466,7 @@ describe('Router - PI3 Operations', () => {
                 operation: 'launch', params: {}
             }, {} as any);
             expect(result.statusCode).toBe(500);
-            setLaunchDelegate(null);
+            setLaunchDelegate(null as any);
         });
     });
 

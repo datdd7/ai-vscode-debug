@@ -13,7 +13,7 @@ vi.mock('fs', async () => {
 
 // Mock MI2 before importing GDBBackend so GDBBackend picks up the mock
 vi.mock('../../protocol/mi2/MI2', () => ({
-    MI2: vi.fn().mockImplementation(() => ({
+    MI2: vi.fn().mockImplementation((): any => ({
         on: vi.fn(),
         start: vi.fn().mockResolvedValue(undefined),
         kill: vi.fn(),
@@ -33,7 +33,7 @@ describe('GDBBackend - initialize()', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         // Restore default mock implementation after clearAllMocks resets it
-        vi.mocked(MI2).mockImplementation(() => ({
+        vi.mocked(MI2).mockImplementation((): any => ({
             on: vi.fn(),
             start: vi.fn().mockResolvedValue(undefined),
             kill: vi.fn(),

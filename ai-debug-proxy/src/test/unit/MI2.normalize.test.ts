@@ -20,7 +20,7 @@ const createMockProcess = () => {
 };
 let spawnMock = vi.fn(() => createMockProcess());
 vi.mock('child_process', () => ({
-    spawn: (...args: any[]) => spawnMock(...args)
+    spawn: (...args: any[]) => (spawnMock as any)(...args)
 }));
 
 describe('MI2 Normalize', () => {
