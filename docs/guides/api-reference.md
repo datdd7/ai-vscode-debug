@@ -1,6 +1,6 @@
 # API Reference — AI Debug Proxy v3
 
-**Version:** 3.0.0-b1
+**Version:** 3.0.0-alpha.1
 **Base URL:** `http://localhost:9999`
 **Last Updated:** 2026-03-30
 
@@ -31,7 +31,7 @@ Health check. Always succeeds even without an active session.
   "success": true,
   "data": {
     "message": "pong",
-    "version": "3.0.0-b1",
+    "version": "3.0.0-alpha.1",
     "operations": ["launch", "attach", "terminate", ...]
   },
   "timestamp": "2026-03-30T10:00:00.000Z"

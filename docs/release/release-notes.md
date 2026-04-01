@@ -2,13 +2,13 @@
 
 ---
 
-## v3.0.0-b1 — 2026-03-30
+## v3.0.0-beta.1 — 2026-03-30
 
 ### Beta Release — Complete Operation Coverage
 
 **38/38 operations tested. 207 unit tests. 69 E2E tests. 10 security tests. 10 performance benchmarks.**
 
-#### What's New vs v3.0.0-a1
+#### What's New vs v3.0.0-alpha.1
 
 - **Suite K (6 E2E tests)**: `get_arguments`, `get_globals`, `pretty_print`, `execute_statement`, `get_scope_preview`, `get_capabilities`
 - **Suite L (3 E2E tests)**: `write_memory`, `terminate` via API, `attach` negative path
@@ -34,7 +34,7 @@
 
 ---
 
-## v3.0.0-a1 — 2026-03-30
+## v3.0.0-alpha.1 — 2026-03-30
 
 ### Alpha Release — 6-Layer Architecture + Audit Fixes
 

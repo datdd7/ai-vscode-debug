@@ -3,7 +3,7 @@
 **Document Version:** 1.0
 **Date:** 2026-03-30
 **Author:** QA Framework (Claude Code)
-**Applies to:** v3.0.0-b1 (Beta) and v3.0.0 (Stable)
+**Applies to:** v3.0.0-beta.1 (Beta) and v3.0.0 (Stable)
 
 ---
 
@@ -11,13 +11,13 @@
 
 | Tier | Version | Description |
 |------|---------|-------------|
-| **Alpha** | `3.0.0-a1` | Core functionality verified, not production-ready |
-| **Beta** | `3.0.0-b1` | Team-testable, >= 80% operation coverage |
+| **Alpha** | `3.0.0-alpha.1` | Core functionality verified, not production-ready |
+| **Beta** | `3.0.0-beta.1` | Team-testable, >= 80% operation coverage |
 | **Stable** | `3.0.0` | Production-ready, 100% coverage, performance certified |
 
 ---
 
-## 2. Beta Release Gates (v3.0.0-b1)
+## 2. Beta Release Gates (v3.0.0-beta.1)
 
 All gates must PASS before the beta tag is created.
 
@@ -102,7 +102,7 @@ Key negative paths covered:
 
 ### Gate B5: Documentation — **PASS**
 - [x] `docs/guides/api-reference.md` reflects 38 operations
-- [x] `CHANGELOG.md` has v3.0.0-b1 entry
+- [x] `CHANGELOG.md` has v3.0.0-beta.1 entry
 - [x] `docs/release/release-criteria.md` exists (this document)
 - [x] `ai-debug-proxy/README.md` is current
 

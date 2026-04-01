@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v3.0.0-b1] - 2026-03-30
+## [v3.0.0-beta.1] - 2026-03-30
 
 ### Beta Release — Complete Operation Coverage + Release Framework
 
