@@ -1,9 +1,20 @@
 /**
  * @file router.ts
  * @brief HTTP Router for AI Debug Proxy v3.a0
- * 
+ *
  * Routes HTTP requests to BackendManager operations.
  * Decoupled from legacy DebugController.
+ *
+ * @traceability
+ * Software Requirements:
+ * REQ-API-001  POST /api/debug shall dispatch to correct backend operation
+ * REQ-API-002  Router shall return HTTP 200 on success
+ * REQ-API-003  Router shall return HTTP 400 on validation failure
+ * REQ-API-004  Router shall return HTTP 500 on backend error
+ * REQ-API-005  read_memory shall accept memoryReference and address params
+ * REQ-API-006  write_memory shall accept address as string or number
+ * REQ-API-007  launch operation shall support VS Code delegate
+ * REQ-API-008  GET /api/version shall return extension version
  */
 
 import * as http from "http";
@@ -45,10 +56,10 @@ export async function handleRequest(
 ): Promise<RouteResult> {
     try {
         const result = await routeRequest(method, url, body);
-        return { statusCode: 200, body: result };
+        return { statusCode: 200, body: result }; /* $REQ REQ-API-002 */
     } catch (error: any) {
         console.error(`[${LOG}] Error:`, error.message);
-        // ADP-008: return 400 for validation failures, 500 for everything else
+        // ADP-008: return 400 for validation failures, 500 for everything else  /* $REQ REQ-API-003 REQ-API-004 */
         const statusCode = error.name === 'ValidationError' ? 400 : 500;
         return {
             statusCode,
@@ -90,7 +101,7 @@ async function routeRequest(
         return handleCreateDebugger(body);
     }
 
-    // Debug operations endpoint (V2 compatibility)
+    // Debug operations endpoint (V2 compatibility) /* $REQ REQ-API-001 */
     if (method === "POST" && (pathname === "/api/debug" || pathname === "/api/debug/execute_operation")) {
         return handleDebugOperation(body);
     }
@@ -102,7 +113,7 @@ async function routeRequest(
 /**
  * Handle ping request
  */
-function handlePing(): any {
+function handlePing(): any { /* $REQ REQ-API-008 */
     const operations = [
         // Session
         "launch", "attach", "terminate", "restart", "start",
@@ -190,7 +201,7 @@ async function handleCreateDebugger(body: any): Promise<any> {
 
 export let launchDelegate: ((params: any) => Promise<boolean>) | null = null;
 
-export function setLaunchDelegate(delegate: (params: any) => Promise<boolean>): void {
+export function setLaunchDelegate(delegate: (params: any) => Promise<boolean>): void { /* $REQ REQ-API-007 */
     launchDelegate = delegate;
 }
 

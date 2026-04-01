@@ -2,12 +2,26 @@
  * @file GDBBackend.ts
  * @module backend
  * @description GDB Debug Backend Implementation
- * 
+ *
  * This class implements the {@link IDebugBackend} interface using the GDB/MI protocol.
  * It manages a child GDB process via the {@link MI2} protocol handler and translates
  * MI events into generic backend events.
- * 
+ *
  * @architecture Layer 2 (Backend) — Depends on Protocol and Core layers.
+ *
+ * @traceability
+ * Software Requirements:
+ * REQ-CORE-001    initialize() shall start GDB process and set up MI2 protocol
+ * REQ-CORE-002    initialize() shall reject if GDB fails to start
+ * REQ-CORE-004    launch() shall send -exec-run to GDB
+ * REQ-CORE-006    quit() shall terminate the GDB process
+ * REQ-ERR-004     executeStatement() shall throw when GDB not initialized
+ * REQ-BACKEND-001 whatis() shall return type from -var-create
+ * REQ-BACKEND-002 whatis() shall fall back to interpreter-exec on error
+ * REQ-BACKEND-003 whatis() fallback shall prefer consoleOutput over value
+ * REQ-BACKEND-004 executeStatement() shall return empty string when GDB has no output
+ * REQ-BACKEND-005 Frame navigation (up/down/goto_frame) shall send MI commands
+ * REQ-BACKEND-006 Breakpoint operations shall map to MI commands
  */
 
 import { EventEmitter } from 'events';
@@ -74,7 +88,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      * 
      * @param config - Backend configuration (gdbPath, etc.)
      */
-    async initialize(config: BackendConfig): Promise<void> {
+    async initialize(config: BackendConfig): Promise<void> { /* $REQ REQ-CORE-001 REQ-CORE-002 */
         this.log(`Initializing GDBBackend: ${JSON.stringify(config, null, 2)}`);
         
         this.config = config;
@@ -162,7 +176,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     /**
      * Launch debug session
      */
-    async launch(params: LaunchParams): Promise<void> {
+    async launch(params: LaunchParams): Promise<void> { /* $REQ REQ-CORE-004 */
         if (!this.mi2) throw new Error('GDB not initialized');
 
         this.log(`Starting program: ${params.program}`);
@@ -216,7 +230,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     /**
      * Terminate debug session
      */
-    async terminate(): Promise<void> {
+    async terminate(): Promise<void> { /* $REQ REQ-CORE-006 */
         console.log('[GDBBackend] Terminating session');
 
         if (this.mi2) {
@@ -360,7 +374,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      * ADP-006: uses GDB-assigned number as the breakpoint ID (not Date.now()).
      * ADP-007: reads verified status from GDB response instead of hardcoding true.
      */
-    async setBreakpoint(location: SourceLocation): Promise<Breakpoint> {
+    async setBreakpoint(location: SourceLocation): Promise<Breakpoint> { /* $REQ REQ-BACKEND-006 */
         if (!this.mi2) throw new Error('GDB not initialized');
 
         console.log('[GDBBackend] Setting breakpoint at', location);
@@ -688,7 +702,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      * ADP-002: increments currentFrameId and sends absolute frame number.
      * GDB MI does not support +1/-1 relative syntax.
      */
-    async frameUp(): Promise<void> {
+    async frameUp(): Promise<void> { /* $REQ REQ-BACKEND-005 */
         if (!this.mi2) throw new Error('GDB not initialized');
         this.currentFrameId++;
         console.log('[GDBBackend] Frame up →', this.currentFrameId);
@@ -815,7 +829,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     /**
      * Whatis - get type of expression
      */
-    async whatis(expression: string): Promise<string> {
+    async whatis(expression: string): Promise<string> { /* $REQ REQ-BACKEND-001 REQ-BACKEND-002 REQ-BACKEND-003 */
         if (!this.mi2) throw new Error('GDB not initialized');
         console.log('[GDBBackend] Whatis:', expression);
         // Use -var-create to get structured type info (avoids interpreter-exec console timing issue)
@@ -836,7 +850,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     /**
      * Execute statement
      */
-    async executeStatement(statement: string): Promise<string> {
+    async executeStatement(statement: string): Promise<string> { /* $REQ REQ-BACKEND-004 REQ-ERR-004 */
         if (!this.mi2) throw new Error('GDB not initialized');
         console.log('[GDBBackend] Execute statement:', statement);
         const result = await this.mi2.sendCommand(`-interpreter-exec console "${statement}"`);

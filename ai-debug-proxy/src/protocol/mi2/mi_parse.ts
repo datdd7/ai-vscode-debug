@@ -1,4 +1,20 @@
 /**
+ * @file mi_parse.ts
+ * @module protocol.mi2
+ * @description GDB/MI protocol parser
+ *
+ * Parses the GDB Machine Interface output format into structured JavaScript objects.
+ *
+ * @traceability
+ * Software Requirements:
+ * REQ-PARSE-001  parseMI shall parse result records (^done, ^error)
+ * REQ-PARSE-002  parseMI shall parse async records (*stopped, *running)
+ * REQ-PARSE-003  parseMI shall parse stream records (~, @, &)
+ * REQ-PARSE-004  MINode.valueOf shall return undefined for falsy start
+ * REQ-PARSE-005  MINode.valueOf shall return start for empty path
+ */
+
+/**
  * Result of a parsed MI line.
  */
 export interface MIInfo {

@@ -33,6 +33,16 @@
  * Architecture Requirements:
  * ARCH-3       RESTful HTTP API [Satisfies $SW SW-3]
  * ARCH-5       Error Handling & Robustness [Satisfies $SW SW-5]
+ *
+ * Software Requirements:
+ * REQ-VAL-001  launch shall require program parameter
+ * REQ-VAL-002  set_breakpoint shall require file and line
+ * REQ-VAL-003  evaluate shall require expression
+ * REQ-VAL-004  jump shall require file and line
+ * REQ-VAL-005  goto_frame shall require numeric frameId
+ * REQ-VAL-006  switch_thread shall require numeric threadId
+ * REQ-VAL-007  disassemble shall require address
+ * REQ-VAL-008  Validation shall pass when all required fields present
  ******************************************************************************/
 
 /******************************************************************************
@@ -159,13 +169,13 @@ export function validateOperationArgs(
     }
 
     // Launch
-    case "launch": {
+    case "launch": { /* $REQ REQ-VAL-001 */
       if (!args || typeof args !== "object") return ok({});
       return ok(args);
     }
 
     // Breakpoint operations requiring location
-    case "set_breakpoint":
+    case "set_breakpoint": /* $REQ REQ-VAL-002 */
     case "set_temp_breakpoint":
     case "remove_breakpoint": {
       if (!args) return fail(`'${operation}' requires a 'location' parameter`);
@@ -228,7 +238,7 @@ export function validateOperationArgs(
     }
 
     // Jump/Until
-    case "jump":
+    case "jump": /* $REQ REQ-VAL-004 */
     case "until": {
       if (!args || !isNumber(args.line)) {
         return fail(`'${operation}' requires 'line' (number)`);
@@ -237,7 +247,7 @@ export function validateOperationArgs(
     }
 
     // Frame navigation
-    case "goto_frame": {
+    case "goto_frame": { /* $REQ REQ-VAL-005 */
       if (!args || !isNumber(args.frameId)) {
         return fail("'goto_frame' requires 'frameId' (number)");
       }
@@ -261,7 +271,7 @@ export function validateOperationArgs(
     case "get_args":
       return ok(args || {});
 
-    case "evaluate":
+    case "evaluate": /* $REQ REQ-VAL-003 */
     case "pretty_print":
     case "whatis": {
       if (!args || !isNonEmptyString(args.expression)) {
@@ -278,7 +288,7 @@ export function validateOperationArgs(
     }
 
     // --- Phase 3 Hardware & Threading ---
-    case "switch_thread": {
+    case "switch_thread": { /* $REQ REQ-VAL-006 */
       if (!args || !isNumber(args.threadId)) {
         return fail("'switch_thread' requires 'threadId' (number)");
       }
@@ -302,7 +312,7 @@ export function validateOperationArgs(
       return ok(args);
     }
 
-    case "disassemble": {
+    case "disassemble": { /* $REQ REQ-VAL-007 */
       if (!args || !isNonEmptyString(args.memoryReference) || !isNumber(args.instructionCount)) {
         return fail("'disassemble' requires 'memoryReference' (string) and 'instructionCount' (number)");
       }

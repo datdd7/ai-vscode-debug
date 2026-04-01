@@ -6,8 +6,16 @@
  * This module handles the low-level communication with the GDB process
  * via the Machine Interface (MI2). it manages the process lifecycle,
  * command queueing, and event emission.
- * 
+ *
  * @architecture Layer 1 (Protocol) — Depends on Core (for types) and utils.
+ *
+ * @traceability
+ * Software Requirements:
+ * REQ-PARSE-001  parseMI shall parse result records (^done, ^error)
+ * REQ-PARSE-002  parseMI shall parse async records (*stopped, *running)
+ * REQ-PARSE-003  parseMI shall parse stream records (~, @, &)
+ * REQ-PARSE-006  normalizeMI shall flatten nested MI result to plain object
+ * REQ-CORE-003   initialize() shall reject if init command fails
  */
 
 import { spawn, ChildProcess } from 'child_process';

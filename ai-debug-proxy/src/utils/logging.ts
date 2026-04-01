@@ -32,6 +32,13 @@
  *
  * Architecture Requirements:
  * ARCH-8       Logging Architecture [Satisfies $SW SW-8]
+ *
+ * Software Requirements:
+ * REQ-LOG-001  Output channel shall be initialized on module load
+ * REQ-LOG-002  logger.info shall write to output channel and log file
+ * REQ-LOG-003  Debug messages shall be suppressed when level is info
+ * REQ-LOG-004  Log level filtering shall respect severity ordering
+ * REQ-LOG-005  File write errors shall be silently ignored
  ******************************************************************************/
 
 /******************************************************************************
@@ -69,7 +76,7 @@ const LOG_FILE = path.join(__dirname, "..", "proxy.log");
  *
  * Automatically initialized on load. Provides UI-visible log stream.
  */
-export const outputChannel: vscode.OutputChannel =
+export const outputChannel: vscode.OutputChannel = /* $REQ REQ-LOG-001 */
   /* v8 ignore next 2 -- false branch only when vscode.window unavailable (non-extension context) */
   typeof vscode.window?.createOutputChannel === "function"
     ? vscode.window.createOutputChannel("AI Debug Proxy")
@@ -94,7 +101,7 @@ export const outputChannel: vscode.OutputChannel =
  *
  * [Satisfies $ARCH ARCH-8]
  */
-export function setLogLevel(level: LogLevel): void {
+export function setLogLevel(level: LogLevel): void { /* $REQ REQ-LOG-004 */
   currentLevel = level;
 }
 
