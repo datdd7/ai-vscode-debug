@@ -47,6 +47,10 @@ void SWC_Dashboard_MainFunction(void) {
 
     Dashboard_RefreshCount++;
 
+    if (Dashboard_RefreshCount % 500 != 0) {
+        return;
+    }
+
     Rte_Read_CoolantTemp_DB(&temp);
     Rte_Read_SystemStatus_DB(&status);
     Rte_Read_MotorState_DB(&motor);

@@ -1,8 +1,11 @@
 # Makefile for Engine Cooling System ECU (Debug Training)
 
 CC       = gcc
-CFLAGS   = -Wall -Wextra -g -O0 -std=c99 -Wno-unused-variable -Wno-unused-parameter
+CFLAGS   = -Wall -Wextra -g -O0 -std=c99 -D_POSIX_C_SOURCE=200112L -Wno-unused-variable -Wno-unused-parameter
 LDFLAGS  =
+
+CXX      = g++
+CXXFLAGS = -Wall -Wextra -g -O0 -std=c++17 -pthread
 
 # Project root
 PROJDIR  = .
@@ -18,12 +21,20 @@ SOURCES  = $(wildcard $(PROJDIR)/main.c) \
 # Object files
 OBJECTS  = $(patsubst $(PROJDIR)/%.c,$(BUILDDIR)/%.o,$(SOURCES))
 
-# Target
+# Targets
 TARGET   = $(BUILDDIR)/cooling_ecu
+TARGET_MT = $(BUILDDIR)/cooling_ecu_mt
 
-.PHONY: all clean run debug count
+.PHONY: all mt clean run debug count
 
 all: $(TARGET)
+
+mt: $(TARGET_MT)
+
+$(TARGET_MT): $(PROJDIR)/main_mt.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $< -o $@
+	@echo "Build complete (multi-threaded): $@"
 
 $(TARGET): $(OBJECTS)
 	@mkdir -p $(dir $@)

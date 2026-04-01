@@ -42,20 +42,17 @@ Std_ReturnType NvM_ReadBlock(NvM_BlockIdType BlockId, void* DstPtr) {
         return E_NOT_OK;
     }
 
-    /* === BUG #4: Null pointer dereference ===
-     * If the block was never written, RamMirror is still NULL.
-     * We should check for NULL before memcpy, but we DON'T check here.
-     * This will cause a segfault when trying to read an uninitialized block.
-     */
+    if (NvM_Blocks[BlockId].RamMirror == NULL_PTR) {
+        NvM_Blocks[BlockId].RamMirror = (uint8*)malloc(NVM_BLOCK_SIZE);
+        if (NvM_Blocks[BlockId].RamMirror == NULL_PTR) return E_NOT_OK;
+        memset(NvM_Blocks[BlockId].RamMirror, 0xFF, NVM_BLOCK_SIZE);
+    }
+
     if (!NvM_Blocks[BlockId].Valid) {
-        /* Try to load from flash into RAM mirror - but mirror is NULL! */
-        /* CORRECT code should allocate first:
-         *   NvM_Blocks[BlockId].RamMirror = malloc(NVM_BLOCK_SIZE);
-         */
-        memcpy(NvM_Blocks[BlockId].RamMirror, /* BUG: NULL! */
+        /* Fix BUG #4: mirror is now allocated */
+        memcpy(NvM_Blocks[BlockId].RamMirror, 
                &NvM_Blocks[BlockId].FlashAddress,
                NvM_Blocks[BlockId].Size);
-        /* This line is never reached due to crash above */
         NvM_Blocks[BlockId].Valid = TRUE;
     }
 

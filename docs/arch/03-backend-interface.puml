@@ -1,0 +1,186 @@
+@startuml Backend Interface Design
+title Backend Abstraction Layer Design
+skinparam componentStyle rectangle
+skinparam backgroundColor #FEFEFE
+
+package "Backend Layer" {
+  
+  interface "IDebugBackend" {
+    --
+    // Lifecycle
+    + initialize(config: BackendConfig): Promise<void>
+    + terminate(): Promise<void>
+    + isRunning(): boolean
+    
+    // Execution Control
+    + launch(params: LaunchParams): Promise<void>
+    + attach(params: AttachParams): Promise<void>
+    + continue(): Promise<StopEvent>
+    + stepOver(): Promise<StopEvent>
+    + stepIn(): Promise<StopEvent>
+    + stepOut(): Promise<StopEvent>
+    + pause(): Promise<void>
+    + jumpToLine(line: number): Promise<void>
+    
+    // Breakpoints
+    + setBreakpoint(file: string, line: number): Promise<Breakpoint>
+    + removeBreakpoint(id: string): Promise<void>
+    + getBreakpoints(): Promise<Breakpoint[]>
+    
+    // Inspection
+    + getStackTrace(threadId?: number): Promise<StackFrame[]>
+    + getVariables(frameId?: number): Promise<Variable[]>
+    + getArguments(frameId?: number): Promise<Variable[]>
+    + getGlobals(): Promise<Variable[]>
+    + evaluate(expression: string, frameId?: number): Promise<Variable>
+    + getRegisters(): Promise<Variable[]>
+    
+    // Info
+    + getLastStopInfo(): Promise<StopEvent>
+    + getCapabilities(): DebuggerCapabilities
+  }
+  
+  class "BackendConfig" {
+    --
+    + backendType: 'gdb' | 'lauterbach'
+    + gdbPath?: string
+    + lauterbachHost?: string
+    + lauterbachPort?: number
+  }
+  
+  class "LaunchParams" {
+    --
+    + program: string
+    + cwd?: string
+    + stopOnEntry?: boolean
+  }
+  
+  class "StopEvent" {
+    --
+    + reason: 'breakpoint' | 'step' | 'exception' | 'pause' | 'entry'
+    + threadId: number
+    + allThreadsStopped?: boolean
+    + frame?: StackFrame
+  }
+  
+  class "BackendManager" {
+    --
+    - backends: Map<string, IDebugBackend>
+    - currentBackend: IDebugBackend
+    --
+    + getBackend(type: string): IDebugBackend
+    + createBackend(type: string): IDebugBackend
+    + releaseBackend(): void
+    + executeOperation(op: string, params: any): Promise<any>
+  }
+}
+
+package "Backend Implementations" {
+  
+  class "GDBBackend" {
+    --
+    - mi2: MI2
+    - config: BackendConfig
+    - running: boolean
+    - breakpoints: Map<string, Breakpoint>
+    --
+    + initialize(config)
+    + launch(params)
+    + continue()
+    + stepOver()
+    + stepIn()
+    + stepOut()
+    + jumpToLine(line)
+    + setBreakpoint(file, line)
+    + getStackTrace()
+    + getVariables()
+    + evaluate(expression)
+    + terminate()
+  }
+  
+  class "LauterbachBackend" {
+    --
+    - lauterbach: LauterbachAPI
+    - config: BackendConfig
+    - running: boolean
+    --
+    + initialize(config)
+    + launch(params)
+    + continue()
+    + stepOver()
+    + getStackTrace()
+    + terminate()
+    {field}: Not yet implemented
+  }
+}
+
+package "MI2 Protocol (from cortex-debug)" {
+  
+  class "MI2" {
+    --
+    - process: ChildProcess
+    - buffer: string
+    - token: number
+    --
+    + start(cwd, initCommands)
+    + sendCommand(cmd): Promise<MIResult>
+    + kill()
+    --
+    Events:
+    + stopped(event)
+    + running()
+    + exited(code)
+  }
+  
+  class "MIResult" {
+    --
+    + token?: number
+    + resultClass: 'done' | 'running' | 'error'
+    + resultData?: any
+  }
+}
+
+' Relationships
+BackendConfig ..> IDebugBackend : Configures
+LaunchParams ..> IDebugBackend : Parameters
+StopEvent ..> IDebugBackend : Returns
+
+BackendManager --> IDebugBackend : Manages
+IDebugBackend <|.. GDBBackend : Implements
+IDebugBackend <|.. LauterbachBackend : Implements
+
+GDBBackend --> MI2 : Uses for GDB/MI
+LauterbachBackend ..> MI2 : May use (future)
+
+MI2 --> MIResult : Returns
+
+' Notes
+note right of IDebugBackend
+  **Key Design Decision:**
+  
+  Interface decouples DebugAdapter
+  from backend implementations.
+  
+  Easy to add new backends
+  without changing DAP layer.
+end note
+
+note left of GDBBackend
+  **Implementation:**
+  
+  - Uses MI2 from cortex-debug
+  - Implements all IDebugBackend methods
+  - Handles GDB/MI protocol
+  - Emits StopEvent on breakpoints
+end note
+
+note right of BackendManager
+  **Factory Pattern:**
+  
+  - Creates backends on demand
+  - Routes operations to current backend
+  - Manages backend lifecycle
+  - Single point for backend switching
+end note
+
+@enduml

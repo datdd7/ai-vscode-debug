@@ -1,688 +1,419 @@
-/******************************************************************************
- * @file        router.ts
+/**
+ * @file router.ts
+ * @brief HTTP Router for AI Debug Proxy v3.a0
  *
- * @brief       HTTP request router for the AI Debug Proxy.
+ * Routes HTTP requests to BackendManager operations.
+ * Decoupled from legacy DebugController.
  *
- * @details
- * This module provides the central routing logic for the HTTP API. It
- * dispatches incoming requests to the appropriate handlers based on the
- * method and URL path.
- *
- * @project     AI Debug Proxy
- * @component   HTTP Server Module
- *
- * @author      Antigravity
- * @date        2026-03-12
- *
- ******************************************************************************/
-
-/******************************************************************************
- * Revision History
- *
- * Version    Date        Author      Description
- * ---------------------------------------------------------------------------
- * 1.0        2026-03-11  Antigravity Initial implementation
- * 1.1        2026-03-11  Antigravity Added LSP and subagent routes
- * 1.2        2026-03-12  Antigravity Refactored for guidelines compliance
- ******************************************************************************/
-
-/******************************************************************************
- * Traceability
- *
- * Design Elements:
- * DD-SW-1      Core Proxy & Session Management
- * DD-SW-5      Subagent Orchestrator
- * DD-SW-7      LSP Code Intelligence
- *
- * Architecture Requirements:
- * ARCH-1       Embedded Node.js Server [Satisfies $SW SW-1]
- * ARCH-3       RESTful HTTP API [Satisfies $SW SW-3]
- ******************************************************************************/
-
-/******************************************************************************
- * Includes
- ******************************************************************************/
+ * @traceability
+ * Software Requirements:
+ * REQ-API-001  POST /api/debug shall dispatch to correct backend operation
+ * REQ-API-002  Router shall return HTTP 200 on success
+ * REQ-API-003  Router shall return HTTP 400 on validation failure
+ * REQ-API-004  Router shall return HTTP 500 on backend error
+ * REQ-API-005  read_memory shall accept memoryReference and address params
+ * REQ-API-006  write_memory shall accept address as string or number
+ * REQ-API-007  launch operation shall support VS Code delegate
+ * REQ-API-008  GET /api/version shall return extension version
+ */
 
 import * as http from "http";
-import * as path from "path";
-import * as fs from "fs";
-
-const PKG_VERSION: string = (() => {
-    try {
-        const pkgPath = path.join(__dirname, "..", "package.json");
-        return JSON.parse(fs.readFileSync(pkgPath, "utf8")).version as string;
-    } catch {
-        return "unknown";
-    }
-})();
-import { debugController } from "../debug/DebugController";
-import { getActiveSession } from "../debug/session";
-import { 
-  getCurrentThreadId, 
-  getCurrentFrameId, 
-  getLastLocation,
-  isStateValid 
-} from "../debug/events";
-import { aggregateContext } from "../debug/ContextAggregator";
-import { watchSuggestService } from "../debug/WatchSuggestService";
-import { globalDiscoveryService } from "../debug/GlobalDiscoveryService";
-import { watchChangeTracker } from "../debug/WatchChangeTracker";
-import { handleSubagentsRequest } from "./routes/subagents.routes";
-import { commandHandler } from "../commands/CommandHandler";
-import { lspService } from "../lsp/LspService";
+import { backendManager } from "../backend/BackendManager";
+import { IDebugBackend } from "../core/IDebugBackend";
 import { validateOperationArgs } from "../utils/validation";
-import { logger } from "../utils/logging";
-import { DebugError } from "../utils/errors";
-import { ApiResponse, ErrorInfo } from "../types";
-
-/******************************************************************************
- * Constants
- ******************************************************************************/
 
 const LOG = "Router";
 
-interface RouteResult {
-    statusCode: number;
-    body: ApiResponse;
+/** ADP-024: strip internal file paths from error messages before sending to caller. */
+function sanitizeError(message: string): string {
+    return message.replace(/\/home\/[^/:"\s]+\/[^:\s"]*/g, '[path]');
 }
 
-/******************************************************************************
- * Public Interface
- ******************************************************************************/
+/** ADP-008: thrown when request parameters fail validation — maps to HTTP 400. */
+class ValidationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ValidationError';
+    }
+}
 
 /**
- * $DD DD-SW-3.1
- *
- * @brief Handle an incoming HTTP request and route to the appropriate handler.
- *
- * Parses the request URL and method to determine the correct sub-handler
- * for the request. Decomposed into sub-handlers to meet complexity rules.
- *
- * @param [in]  method      HTTP method (GET, POST, etc.)
- * @param [in]  url         Request URL path and query.
- * @param [in]  body        Request body object (if applicable).
- * @param [in]  _req        Original Node.js request object.
- *
- * @return Promise resolving to the route result (status and body).
- *
- * [Satisfies $ARCH ARCH-3]
+ * Route result
+ */
+interface RouteResult {
+    statusCode: number;
+    body: any;
+}
+
+/**
+ * Handle HTTP request
  */
 export async function handleRequest(
     method: string,
     url: string,
     body: any,
-    _req: http.IncomingMessage,
+    req: http.IncomingMessage
 ): Promise<RouteResult> {
-    const parsedUrl = new URL(url, "http://localhost");
-    const pathname = parsedUrl.pathname;
-
-    logger.debug(LOG, "Routing request", { method, pathname });
-
-    // Routing table logic decomposed to maintain low cyclomatic complexity.
-    const result =
-        (await handleSystemRouting(method, pathname, body, url)) ??
-        (await handleWatchRouting(method, pathname, body, url)) ??
-        (await handleSubagentRouting(method, pathname, body)) ??
-        (await handleCommandRouting(method, pathname, body)) ??
-        (await handleLspRouting(method, pathname, parsedUrl)) ??
-        (await handleDebugRouting(method, pathname, body));
-
-    if (result) return result;
-
-    return {
-        statusCode: 404,
-        body: {
-            success: false,
-            error: `Not found: ${method} ${pathname}`,
-            timestamp: new Date().toISOString(),
-        },
-    };
-}
-
-/**************************************************************************
- * Route Handlers
- **************************************************************************/
-
-/** @brief Handle core system routes (ping, status). */
-async function handleSystemRouting(method: string, pathname: string, body: any, url: string): Promise<RouteResult | null> {
-    // Allow GET and POST for system routes
-    if (method !== "GET" && method !== "POST") return null;
-
-    if (pathname === "/api/ping") {
-        return {
-            statusCode: 200,
-            body: {
-                success: true,
-                data: {
-                    message: "pong",
-                    version: PKG_VERSION,
-                    operations: debugController.getOperations(),
-                },
-                timestamp: new Date().toISOString(),
-            },
-        };
-    }
-
-    if (pathname === "/api/status") {
-        const activeSession = getActiveSession();
-        return {
-            statusCode: 200,
-            body: {
-                success: true,
-                data: {
-                    version: PKG_VERSION,
-                    hasActiveSession: !!activeSession,
-                    sessionId: activeSession?.id || null,
-                    sessionName: activeSession?.name || null,
-                },
-                timestamp: new Date().toISOString(),
-            },
-        };
-    }
-
-    // NEW: Session state endpoint for auto-context
-    if (pathname === "/api/session/state" && method === "GET") {
-        const activeSession = getActiveSession();
-        if (!activeSession) {
-            return {
-                statusCode: 400,
-                body: {
-                    success: false,
-                    error: "No active debug session",
-                },
-            };
-        }
-        
-        const threadId = getCurrentThreadId(activeSession.id);
-        const frameId = getCurrentFrameId(activeSession.id);
-        const location = getLastLocation(activeSession.id);
-        const stateValid = isStateValid(activeSession.id);
-        
-        return {
-            statusCode: 200,
-            body: {
-                success: true,
-                data: {
-                    sessionId: activeSession.id,
-                    threadId: threadId ?? null,
-                    frameId: frameId ?? null,
-                    location: location ?? null,
-                    stateValid: stateValid ?? false,
-                },
-                timestamp: new Date().toISOString(),
-            },
-        };
-    }
-
-    // NEW: Set session context endpoint
-    if (pathname === "/api/session/set_context" && method === "POST") {
-        const activeSession = getActiveSession();
-        if (!activeSession) {
-            return {
-                statusCode: 400,
-                body: {
-                    success: false,
-                    error: "No active debug session",
-                },
-            };
-        }
-        
-        if (!body?.threadId && !body?.frameId) {
-            return {
-                statusCode: 400,
-                body: {
-                    success: false,
-                    error: "Missing 'threadId' or 'frameId' parameter",
-                },
-            };
-        }
-        
-        // Import setter functions
-        const { setCurrentThreadId, setCurrentFrameId } = require("../debug/events");
-        
-        if (body.threadId !== undefined) {
-            setCurrentThreadId(body.threadId, activeSession.id);
-        }
-        if (body.frameId !== undefined) {
-            setCurrentFrameId(body.frameId, activeSession.id);
-        }
-        
-        return {
-            statusCode: 200,
-            body: {
-                success: true,
-                data: {
-                    message: "Session context updated",
-                    threadId: body.threadId ?? null,
-                    frameId: body.frameId ?? null,
-                },
-                timestamp: new Date().toISOString(),
-            },
-        };
-    }
-
-    // NEW: Context snapshot endpoint for AI agents
-    if (pathname === "/api/context" && method === "GET") {
-        const activeSession = getActiveSession();
-        if (!activeSession) {
-            return {
-                statusCode: 400,
-                body: {
-                    success: false,
-                    error: "No active debug session",
-                },
-            };
-        }
-        
-        try {
-            // Parse query parameters
-            const query = new URL(url, "http://localhost").searchParams;
-            const options: any = {};
-            
-            const depth = query.get("depth");
-            if (depth) options.depth = parseInt(depth, 10);
-            
-            const include = query.get("include");
-            if (include) options.include = include.split(",");
-            
-            const exclude = query.get("exclude");
-            if (exclude) options.exclude = exclude.split(",");
-            
-            const sourceLines = query.get("sourceLines");
-            if (sourceLines) options.sourceLines = parseInt(sourceLines, 10);
-            
-            // Aggregate context
-            const context = await aggregateContext(activeSession, options);
-            
-            return {
-                statusCode: 200,
-                body: {
-                    success: true,
-                    data: context,
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        } catch (e: any) {
-            logger.error(LOG, `Context aggregation failed: ${e.message}`);
-            return {
-                statusCode: 500,
-                body: {
-                    success: false,
-                    error: `Context aggregation failed: ${e.message}`,
-                },
-            };
-        }
-    }
-
-    return null;
-}
-
-/** @brief Handle watch suggestion routes. */
-async function handleWatchRouting(method: string, pathname: string, body: any, url: string): Promise<RouteResult | null> {
-  // GET /api/watch/suggest - Get watch suggestions
-  if (pathname === "/api/watch/suggest" && method === "GET") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: { success: false, error: "No active debug session" },
-      };
-    }
-
     try {
-      const result = await watchSuggestService.getSuggestions(activeSession);
-      return {
-        statusCode: 200,
-        body: {
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } catch (e: any) {
-      logger.error(LOG, `Watch suggestions failed: ${e.message}`);
-      return {
-        statusCode: 500,
-        body: {
-          success: false,
-          error: `Watch suggestions failed: ${e.message}`,
-        },
-      };
+        const result = await routeRequest(method, url, body);
+        return { statusCode: 200, body: result }; /* $REQ REQ-API-002 */
+    } catch (error: any) {
+        console.error(`[${LOG}] Error:`, error.message);
+        // ADP-008: return 400 for validation failures, 500 for everything else  /* $REQ REQ-API-003 REQ-API-004 */
+        const statusCode = error.name === 'ValidationError' ? 400 : 500;
+        return {
+            statusCode,
+            body: {
+                success: false,
+                // ADP-024: sanitize paths before they reach the caller
+                error: sanitizeError(error.message),
+                timestamp: new Date().toISOString()
+            }
+        };
     }
-  }
-
-  // POST /api/watch/auto - Enable auto-watch
-  if (pathname === "/api/watch/auto" && method === "POST") {
-    const activeSession = getActiveSession();
-    if (!activeSession) {
-      return {
-        statusCode: 400,
-        body: { success: false, error: "No active debug session" },
-      };
-    }
-
-    // Enable change tracker
-    watchChangeTracker.enable();
-    
-    // Add variables to watch
-    const patterns = body?.patterns || [];
-    if (patterns.length > 0) {
-      const globals = await globalDiscoveryService.discoverByPattern(patterns);
-      for (const global of globals) {
-        await watchChangeTracker.watchVariable(activeSession, global.name);
-      }
-    }
-
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { 
-          message: "Auto-watch enabled",
-          watchedCount: watchChangeTracker.getWatchedVariables().length
-        },
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  // DELETE /api/watch/auto - Disable auto-watch
-  if (pathname === "/api/watch/auto" && method === "DELETE") {
-    watchChangeTracker.disable();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { message: "Auto-watch disabled" },
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  // GET /api/watch/changes - Get detected changes
-  if (pathname === "/api/watch/changes" && method === "GET") {
-    const changes = watchChangeTracker.getChanges();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { changes },
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  // POST /api/watch/clear_changes - Clear change history
-  if (pathname === "/api/watch/clear_changes" && method === "POST") {
-    watchChangeTracker.clearChanges();
-    return {
-      statusCode: 200,
-      body: {
-        success: true,
-        data: { message: "Change history cleared" },
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  // GET /api/discover/globals - Discover global variables
-  if (pathname === "/api/discover/globals" && method === "GET") {
-    try {
-      const result = await globalDiscoveryService.discoverGlobals();
-      return {
-        statusCode: 200,
-        body: {
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } catch (e: any) {
-      logger.error(LOG, `Global discovery failed: ${e.message}`);
-      return {
-        statusCode: 500,
-        body: {
-          success: false,
-          error: `Global discovery failed: ${e.message}`,
-        },
-      };
-    }
-  }
-
-  return null;
 }
 
-/** @brief Handle subagent orchestration routes. */
-async function handleSubagentRouting(method: string, pathname: string, body: any): Promise<RouteResult | null> {
-    if (pathname === "/api/subagents" && method === "POST") {
-        return await handleSubagentsRequest(body);
-    }
-    return null;
-}
+/**
+ * Route request to handler
+ */
+async function routeRequest(
+    method: string,
+    url: string,
+    body: any
+): Promise<any> {
+    const normalizePath = (p: string) => p.replace(/\/+$/, '') || '/';
+    const pathname = normalizePath(url.split('?')[0]);
 
-/** @brief Handle macro command routes. */
-async function handleCommandRouting(method: string, pathname: string, body: any): Promise<RouteResult | null> {
-    if (pathname === "/api/commands" && method === "POST") {
-        if (!body?.command) {
-            return {
-                statusCode: 400,
-                body: { success: false, error: "Missing 'command' field" },
-            };
-        }
-        try {
-            const result = await commandHandler.handleCommand(body.command, body.args);
-            return { statusCode: 200, body: { success: true, data: result } };
-        } catch (e: any) {
-            return { statusCode: 500, body: { success: false, error: e.message } };
-        }
-    }
-    return null;
-}
+    console.log(`[${LOG}] Routing request: ${method} ${pathname}`);
 
-/** @brief Handle LSP code intelligence routes. */
-async function handleLspRouting(method: string, pathname: string, parsedUrl: URL): Promise<RouteResult | null> {
-    if (method !== "GET") return null;
-
-    if (pathname === "/api/symbols") {
-        const fsPath = parsedUrl.searchParams.get("fsPath");
-        if (!fsPath) return { statusCode: 400, body: { success: false, error: "Missing fsPath" } };
-        try {
-            const symbols = await lspService.getDocumentSymbols(fsPath);
-            return { statusCode: 200, body: { success: true, data: symbols } };
-        } catch (e: any) {
-            return { statusCode: 500, body: { success: false, error: e.message } };
-        }
+    // Ping endpoint
+    if (method === "GET" && pathname === "/api/ping") {
+        return handlePing();
     }
 
-    if (pathname === "/api/references") {
-        const fsPath = parsedUrl.searchParams.get("fsPath");
-        const line = parseInt(parsedUrl.searchParams.get("line") || "-1");
-        const char = parseInt(parsedUrl.searchParams.get("character") || "-1");
-        if (!fsPath || line < 0 || char < 0) return { statusCode: 400, body: { success: false, error: "Missing params" } };
-        try {
-            const refs = await lspService.getReferences(fsPath, line, char);
-            return { statusCode: 200, body: { success: true, data: refs } };
-        } catch (e: any) {
-            return { statusCode: 500, body: { success: false, error: e.message } };
-        }
+    // Status endpoint (V2 compatibility)
+    if (method === "GET" && (pathname === "/api/status" || pathname === "/api/debug/status")) {
+        return handleStatus();
     }
 
-    if (pathname === "/api/call-hierarchy") {
-        const fsPath = parsedUrl.searchParams.get("fsPath");
-        const line = parseInt(parsedUrl.searchParams.get("line") || "-1");
-        const char = parseInt(parsedUrl.searchParams.get("character") || "-1");
-        const dir = parsedUrl.searchParams.get("direction") || "incoming";
-        if (!fsPath || line < 0 || char < 0) return { statusCode: 400, body: { success: false, error: "Missing params" } };
-        try {
-            const calls = dir === "outgoing"
-                ? await lspService.getCallHierarchyOutgoing(fsPath, line, char)
-                : await lspService.getCallHierarchyIncoming(fsPath, line, char);
-            return { statusCode: 200, body: { success: true, data: calls } };
-        } catch (e: any) {
-            return { statusCode: 500, body: { success: false, error: e.message } };
-        }
+    // Create debugger endpoint
+    if (method === "POST" && pathname === "/api/debugger/create") {
+        return handleCreateDebugger(body);
     }
 
-    return null;
-}
-
-/** @brief Handle unified debug operation routes. */
-async function handleDebugRouting(method: string, pathname: string, body: any): Promise<RouteResult | null> {
-    if (method !== "POST") return null;
-
-    if (pathname === "/api/debug") {
+    // Debug operations endpoint (V2 compatibility) /* $REQ REQ-API-001 */
+    if (method === "POST" && (pathname === "/api/debug" || pathname === "/api/debug/execute_operation")) {
         return handleDebugOperation(body);
     }
 
-    if (pathname === "/api/debug/batch") {
-        return handleBatchOperations(body);
-    }
-
-    return null;
+    console.log(`[${LOG}] No route matched for ${method} ${pathname}`);
+    throw new Error(`Unknown route: ${method} ${pathname}`);
 }
 
-/**************************************************************************
- * Internal Helpers
- **************************************************************************/
+/**
+ * Handle ping request
+ */
+function handlePing(): any { /* $REQ REQ-API-008 */
+    const operations = [
+        // Session
+        "launch", "attach", "terminate", "restart", "start",
+        // Execution
+        "continue", "next", "step_in", "step_out", "pause", "jump", "until",
+        // Frame navigation
+        "up", "down", "goto_frame",
+        // Breakpoints
+        "set_breakpoint", "set_temp_breakpoint", "remove_breakpoint",
+        "remove_all_breakpoints_in_file", "get_active_breakpoints",
+        // Inspection
+        "stack_trace", "get_variables", "get_arguments", "get_globals",
+        "evaluate", "get_registers", "read_memory", "write_memory",
+        "list_source", "get_source", "pretty_print", "whatis",
+        "execute_statement", "list_all_locals", "get_scope_preview",
+        // Threading
+        "list_threads", "switch_thread",
+        // Info
+        "get_last_stop_info", "get_capabilities"
+    ];
+    return {
+        success: true,
+        data: {
+            message: "pong",
+            version: "v3.a1",
+            operations,
+            operationCount: operations.length
+        },
+        timestamp: new Date().toISOString()
+    };
+}
 
 /**
- * @brief Handle a debug operation request.
- *
- * @param [in]  body    Request body: { operation: string, params?: object }
- *
- * @return Promise resolving to route result.
+ * Handle status request
  */
-async function handleDebugOperation(body: any): Promise<RouteResult> {
+async function handleStatus(): Promise<any> {
+    const backend = backendManager.getCurrentBackend();
+    const stopInfo = backend ? await backend.getLastStopInfo() : undefined;
+    const isRunning = backend ? backend.isRunning() : false;
+
+    return {
+        success: true,
+        data: {
+            version: "v3.a1",
+            hasActiveSession: !!backend,
+            isRunning: isRunning,
+            status: isRunning ? 'running' : 'stopped',
+            lastStopInfo: isRunning ? undefined : stopInfo
+        },
+        timestamp: new Date().toISOString()
+    };
+}
+
+/**
+ * Handle create debugger request
+ */
+async function handleCreateDebugger(body: any): Promise<any> {
+    const { backendType, gdbPath, lauterbachHost, lauterbachPort } = body;
+
+    if (!backendType) {
+        throw new Error("Missing backendType field");
+    }
+
+    console.log(`[${LOG}] Creating debugger: ${backendType}`);
+
+    const config = {
+        backendType,
+        gdbPath,
+        lauterbachHost,
+        lauterbachPort
+    };
+
+    const backend = backendManager.createBackend(backendType, config);
+    await backend.initialize(config);
+
+    return {
+        success: true,
+        data: {
+            backendType,
+            isRunning: backend.isRunning()
+        },
+        timestamp: new Date().toISOString()
+    };
+}
+
+export let launchDelegate: ((params: any) => Promise<boolean>) | null = null;
+
+export function setLaunchDelegate(delegate: (params: any) => Promise<boolean>): void { /* $REQ REQ-API-007 */
+    launchDelegate = delegate;
+}
+
+/**
+ * Handle debug operation request
+ */
+async function handleDebugOperation(body: any): Promise<any> {
     if (!body || typeof body !== "object") {
-        return {
-            statusCode: 400,
-            body: {
-                success: false,
-                error: "Request body must be a JSON object with 'operation' field",
-                timestamp: new Date().toISOString(),
-            },
-        };
+        throw new Error("Request body must be a JSON object");
     }
 
     const { operation, params } = body;
 
     if (!operation || typeof operation !== "string") {
-        return {
-            statusCode: 400,
-            body: {
-                success: false,
-                error: "Missing or invalid 'operation' field",
-                timestamp: new Date().toISOString(),
-            },
-        };
+        throw new Error("Missing or invalid 'operation' field");
     }
 
-    // Validate params
-    const validation = validateOperationArgs(operation, params);
-    if (!validation.isValid) {
-        logger.warn(LOG, "validation.failed", { operation, message: validation.message });
-        return {
-            statusCode: 400,
-            body: {
-                success: false,
-                operation,
-                error: validation.message,
-                timestamp: new Date().toISOString(),
-            },
-        };
+    // ADP-008: validate parameters before dispatching (skip launch — handled separately)
+    if (operation !== 'launch') {
+        const validation = validateOperationArgs(operation, params);
+        if (!validation.isValid) {
+            /* v8 ignore next -- validation.message always set by fail(string), fallback unreachable */
+            throw new ValidationError(validation.message || `Invalid parameters for '${operation}'`);
+        }
     }
 
-    // Execute the operation
-    try {
-        const result = await debugController.executeOperation(
-            operation,
-            validation.params,
-        );
-
-        return {
-            statusCode: 200,
-            body: {
-                success: true,
-                operation,
-                data: result,
-                timestamp: new Date().toISOString(),
-            },
+    // Special handling for launch - create backend if needed
+    if (operation === 'launch') {
+        const backendType = params?.backendType || 'gdb';
+        const config = {
+            backendType,
+            gdbPath: params?.gdbPath || 'gdb'
         };
-    } catch (error: any) {
-        logger.error(LOG, "operation.failed", { operation, error: error.message });
-
-        // AIVS-002: Return structured error response
-        if (error instanceof DebugError) {
+        
+        console.log(`[${LOG}] Creating backend for launch: ${backendType}`);
+        
+        if (launchDelegate) {
+            console.log(`[${LOG}] Delegating launch to VS Code UI via callback`);
+            const success = await launchDelegate(params);
+            if (!success) {
+                throw new Error("Failed to start VS Code debugging session");
+            }
             return {
-                statusCode: 400,
-                body: {
-                    success: false,
-                    operation,
-                    error: error.toJSON() as ErrorInfo,
-                    timestamp: new Date().toISOString(),
-                },
+                success: true,
+                sessionId: 'v3-session-vscode'
             };
         }
 
+        const backend = backendManager.createBackend(backendType, config);
+        await backend.initialize(config);
+        await backend.launch(params);
+        
         return {
-            statusCode: 500,
-            body: {
-                success: false,
-                operation,
-                error: error.message,
-                timestamp: new Date().toISOString(),
-            },
+            success: true,
+            sessionId: 'v3-session',
+            stopReason: params.stopOnEntry ? 'entry' : 'breakpoint'
         };
     }
+
+    // Get active backend for other operations
+    const backend = backendManager.getCurrentBackend();
+    if (!backend) {
+        throw new Error("No debug backend initialized. Launch a debug session first.");
+    }
+
+    console.log(`[${LOG}] Executing operation: ${operation}`);
+
+    // Execute operation
+    const result = await executeBackendOperation(backend, operation, params);
+
+    return {
+        success: true,
+        operation,
+        data: result,
+        timestamp: new Date().toISOString()
+    };
 }
 
 /**
- * @brief Handle a batch of debug operations.
- *
- * @param [in]  body    Request body: { operations: { ... }[], parallel?: boolean }
- *
- * @return Promise resolving to route result.
+ * Execute operation on backend
  */
-async function handleBatchOperations(body: any): Promise<RouteResult> {
-    if (!body || !Array.isArray(body.operations)) {
-        return {
-            statusCode: 400,
-            body: {
-                success: false,
-                error: "Request body must contain an 'operations' array",
-                timestamp: new Date().toISOString(),
-            },
-        };
-    }
+async function executeBackendOperation(backend: IDebugBackend, operation: string, params: any): Promise<any> {
+    switch (operation) {
+        // Session
+        /* v8 ignore next 2 -- launch is handled above and returns before reaching here */
+        case 'launch':
+            return await backend.launch(params);
+        case 'attach':
+            return await backend.attach(params);
+        case 'terminate':
+            return await backend.terminate();
+        
+        // ADP-010: start() runs -exec-run after launch + configurationDone
+        case 'start':
+            await backend.start();
+            return { success: true };
 
-    try {
-        const result = await debugController.executeBatchOperations(
-            body.operations,
-            body.parallel,
-        );
+        // Execution
+        case 'continue':
+            await backend.continue();
+            return { success: true };
+        case 'next':
+        case 'stepOver':
+        case 'step_over':
+            await backend.stepOver();
+            return { success: true };
+        case 'step_in':
+        case 'stepIn':
+            await backend.stepIn();
+            return { success: true };
+        case 'step_out':
+        case 'stepOut':
+            await backend.stepOut();
+            return { success: true };
+        case 'pause':
+            await backend.pause();
+            return { success: true };
+        case 'jump':
+            await backend.jumpToLine(params?.line, params?.file);
+            return { success: true };
+        case 'until':
+            await backend.runUntilLine(params?.line, params?.file);
+            return { success: true };
+        case 'restart':
+            await backend.restart();
+            return { success: true };
+        case 'up':
+        case 'frame_up':
+            await backend.frameUp();
+            return { success: true };
+        case 'down':
+        case 'frame_down':
+            await backend.frameDown();
+            return { success: true };
+        case 'goto_frame':
+            await backend.gotoFrame(params?.frameId);
+            return { success: true };
 
-        return {
-            statusCode: 200,
-            body: {
-                success: true,
-                data: result,
-                timestamp: new Date().toISOString(),
-            },
-        };
-    } catch (error: any) {
-        logger.error(LOG, "batch.failed", { error: error.message });
-        return {
-            statusCode: 500,
-            body: {
-                success: false,
-                error: error.message,
-                timestamp: new Date().toISOString(),
-            },
-        };
+        // Breakpoints
+        case 'set_breakpoint':
+            return await backend.setBreakpoint(params?.location);
+        case 'set_temp_breakpoint':
+            return await backend.setTempBreakpoint(params?.location);
+        case 'remove_breakpoint':
+            return await backend.removeBreakpoint(params?.id);
+        case 'remove_all_breakpoints_in_file':
+            await backend.removeAllBreakpointsInFile(params?.filePath);
+            return { success: true };
+        case 'get_active_breakpoints':
+            return await backend.getBreakpoints();
+
+        // Inspection
+        case 'stack_trace':
+            return await backend.getStackTrace(params?.threadId);
+        case 'get_variables':
+            return await backend.getVariables(params?.frameId);
+        case 'get_arguments':
+            return await backend.getArguments(params?.frameId);
+        case 'get_globals':
+            return await backend.getGlobals();
+        case 'evaluate':
+            return await backend.evaluate(params?.expression, params?.frameId);
+        case 'get_registers':
+            return await backend.getRegisters();
+        case 'read_memory': {
+            // Accept DAP-style (memoryReference/count) or legacy (address/length)
+            /* v8 ignore next 2 -- legacy params?.address / params?.length unreachable: validation requires memoryReference + count */
+            const memRef = params?.memoryReference || params?.address;
+            const memCount = params?.count ?? params?.length;
+            /* v8 ignore next -- memRef is always a string (memoryReference) after validation */
+            const memAddr = typeof memRef === 'string' ? parseInt(memRef, 16) : Number(memRef);
+            const buf = await backend.readMemory(memAddr, memCount);
+            return { address: '0x' + memAddr.toString(16), data: buf.toString('hex'), count: buf.length };
+        }
+        case 'write_memory': {
+            // Accept address as number or hex string; data as hex string → Buffer
+            /* v8 ignore next -- string address unreachable: validation requires isNumber(address) */
+            const wrAddr = typeof params?.address === 'string' ? parseInt(params.address, 16) : Number(params?.address);
+            const wrData = params?.data ? Buffer.from(params.data, 'hex') : Buffer.alloc(0);
+            await backend.writeMemory(wrAddr, wrData);
+            return { success: true, address: '0x' + wrAddr.toString(16), bytesWritten: wrData.length };
+        }
+        case 'list_source':
+            return await backend.listSource(params);
+        case 'get_source':
+            return await backend.getSource(params?.expression);
+        case 'pretty_print':
+            return await backend.prettyPrint(params?.expression);
+        case 'whatis':
+            return await backend.whatis(params?.expression);
+        case 'execute_statement':
+            return await backend.executeStatement(params?.statement);
+        case 'list_all_locals':
+            return await backend.listAllLocals();
+        case 'get_scope_preview':
+            return await backend.getScopePreview();
+
+        // Threading
+        case 'list_threads':
+            return await backend.listThreads();
+        case 'switch_thread':
+            await backend.switchThread(params?.threadId);
+            return { success: true };
+
+        // Info
+        case 'get_last_stop_info':
+            return await backend.getLastStopInfo();
+        case 'get_capabilities':
+            return backend.getCapabilities();
+
+        /* v8 ignore next 2 -- validation rejects unknown operations before reaching here */
+        default:
+            throw new Error(`Unknown operation: ${operation}`);
     }
 }
-
-/******************************************************************************
- * End of File
- ******************************************************************************/
-

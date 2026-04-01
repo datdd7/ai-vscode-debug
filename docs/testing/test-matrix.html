@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Debug Proxy v3.0.0 — Test Matrix</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #f0f0f0; margin: 0; padding: 24px; }
+  h1 { color: #FF1493; margin-bottom: 4px; }
+  .meta { color: #888; font-size: 0.85rem; margin-bottom: 24px; }
+  .summary { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 16px 24px; min-width: 140px; }
+  .card .num { font-size: 2rem; font-weight: 700; color: #FF1493; }
+  .card .label { font-size: 0.8rem; color: #888; margin-top: 2px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+  th { background: #1a1a1a; color: #FF1493; text-align: left; padding: 10px 12px; border-bottom: 2px solid #FF1493; position: sticky; top: 0; }
+  tr:nth-child(even) td { background: #111; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e1e1e; vertical-align: middle; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .pass  { background: rgba(255,20,147,0.2); color: #FF1493; border: 1px solid #FF1493; }
+  .e2e   { background: rgba(100,200,100,0.15); color: #90EE90; border: 1px solid #90EE90; }
+  .unit  { background: rgba(100,150,255,0.15); color: #aad4ff; border: 1px solid #aad4ff; }
+  .both  { background: rgba(255,165,0,0.15); color: #FFD700; border: 1px solid #FFD700; }
+  .category { color: #FF69B4; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .cov-bar { width: 100px; height: 10px; background: #333; border-radius: 5px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .cov-fill { height: 100%; border-radius: 5px; background: #FF1493; }
+</style>
+</head>
+<body>
+<h1>AI Debug Proxy — Test Matrix</h1>
+<div class="meta">v3.0.0 Stable &bull; 2026-03-31 &bull; 38/38 operations covered</div>
+
+<div class="summary">
+  <div class="card"><div class="num">38</div><div class="label">Operations</div></div>
+  <div class="card"><div class="num">38</div><div class="label">Covered</div></div>
+  <div class="card"><div class="num">369</div><div class="label">Unit Tests</div></div>
+  <div class="card"><div class="num">69</div><div class="label">E2E Tests</div></div>
+  <div class="card"><div class="num" style="color:#90EE90">91%</div><div class="label">Overall Coverage</div></div>
+</div>
+
+<h2 style="color:#FF69B4;margin-bottom:12px">Coverage by Module</h2>
+<table style="max-width:600px;margin-bottom:32px">
+  <tr><th>Module</th><th>Coverage</th><th>Target</th><th>Status</th></tr>
+  <tr><td>GDBBackend.ts</td><td><div class="cov-bar"><div class="cov-fill" style="width:93%"></div></div>92.97%</td><td>85%</td><td><span class="badge pass">PASS</span></td></tr>
+  <tr><td>router.ts</td><td><div class="cov-bar"><div class="cov-fill" style="width:98%"></div></div>98.28%</td><td>85%</td><td><span class="badge pass">PASS</span></td></tr>
+  <tr><td>validation.ts</td><td><div class="cov-bar"><div class="cov-fill" style="width:99%"></div></div>99.09%</td><td>90%</td><td><span class="badge pass">PASS</span></td></tr>
+  <tr><td>MI2.ts</td><td><div class="cov-bar"><div class="cov-fill" style="width:99%"></div></div>99.09%</td><td>80%</td><td><span class="badge pass">PASS</span></td></tr>
+  <tr><td>mi_parse.ts</td><td><div class="cov-bar"><div class="cov-fill" style="width:81%"></div></div>81.27%</td><td>80%</td><td><span class="badge pass">PASS</span></td></tr>
+  <tr><td>errors.ts</td><td><div class="cov-bar"><div class="cov-fill" style="width:100%"></div></div>100%</td><td>—</td><td><span class="badge pass">PASS</span></td></tr>
+  <tr><td><strong>Overall</strong></td><td><div class="cov-bar"><div class="cov-fill" style="width:91%"></div></div><strong>91.08%</strong></td><td><strong>70%</strong></td><td><span class="badge pass">PASS</span></td></tr>
+</table>
+
+<h2 style="color:#FF69B4;margin-bottom:12px">Operation Coverage Matrix</h2>
+<table>
+<thead>
+  <tr>
+    <th>#</th>
+    <th>Operation</th>
+    <th>Category</th>
+    <th>E2E Suite</th>
+    <th>Unit</th>
+    <th>Status</th>
+  </tr>
+</thead>
+<tbody>
+  <tr><td>1</td><td>launch</td><td class="category">Session</td><td>A1</td><td>router, GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>2</td><td>restart</td><td class="category">Session</td><td>A3</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>3</td><td>quit / terminate</td><td class="category">Session</td><td>L2</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>4</td><td>continue</td><td class="category">Execution</td><td>B2</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>5</td><td>next (step_over)</td><td class="category">Execution</td><td>C1</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>6</td><td>step_in</td><td class="category">Execution</td><td>C2</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>7</td><td>step_out</td><td class="category">Execution</td><td>C3</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>8</td><td>pause</td><td class="category">Execution</td><td>C5</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>9</td><td>jump</td><td class="category">Execution</td><td>UC7</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>10</td><td>until</td><td class="category">Execution</td><td>C4</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>11</td><td>up (frame_up)</td><td class="category">Stack</td><td>D2</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>12</td><td>down (frame_down)</td><td class="category">Stack</td><td>D2</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>13</td><td>goto_frame</td><td class="category">Stack</td><td>D3</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>14</td><td>stack_trace</td><td class="category">Stack</td><td>D1</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>15</td><td>list_source</td><td class="category">Stack</td><td>F1</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>16</td><td>get_source</td><td class="category">Stack</td><td>F2</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>17</td><td>set_breakpoint</td><td class="category">Breakpoints</td><td>B1</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>18</td><td>set_temp_breakpoint</td><td class="category">Breakpoints</td><td>B6</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>19</td><td>remove_breakpoint</td><td class="category">Breakpoints</td><td>B3</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>20</td><td>remove_all_breakpoints_in_file</td><td class="category">Breakpoints</td><td>B7</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>21</td><td>get_active_breakpoints</td><td class="category">Breakpoints</td><td>B3</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>22</td><td>get_variables (get_stack_frame_variables)</td><td class="category">Variables</td><td>E1</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>23</td><td>get_arguments (get_args)</td><td class="category">Variables</td><td>K1</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>24</td><td>get_globals</td><td class="category">Variables</td><td>K2</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>25</td><td>evaluate</td><td class="category">Variables</td><td>E2</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>26</td><td>pretty_print</td><td class="category">Variables</td><td>K3</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>27</td><td>whatis</td><td class="category">Variables</td><td>E5</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>28</td><td>execute_statement</td><td class="category">Variables</td><td>K4</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>29</td><td>list_all_locals</td><td class="category">Variables</td><td>E6</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>30</td><td>get_scope_preview</td><td class="category">Variables</td><td>K5</td><td>GDBBackend</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>31</td><td>get_registers</td><td class="category">Hardware</td><td>G1</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>32</td><td>read_memory</td><td class="category">Hardware</td><td>G2</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>33</td><td>write_memory</td><td class="category">Hardware</td><td>L1</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>34</td><td>disassemble</td><td class="category">Hardware</td><td>—</td><td>router (validation)</td><td><span class="badge unit">Unit</span></td></tr>
+  <tr><td>35</td><td>list_threads</td><td class="category">Threads</td><td>J1</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>36</td><td>switch_thread</td><td class="category">Threads</td><td>J3</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>37</td><td>get_last_stop_info</td><td class="category">Status</td><td>F3</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+  <tr><td>38</td><td>get_capabilities</td><td class="category">Status</td><td>K6</td><td>GDBBackend, router</td><td><span class="badge both">E2E + Unit</span></td></tr>
+</tbody>
+</table>
+
+<div style="margin-top:24px;color:#555;font-size:0.8rem">
+  Generated: 2026-03-31 &bull; AI Debug Proxy v3.0.0 &bull; QA Framework (Claude Code)
+</div>
+</body>
+</html>

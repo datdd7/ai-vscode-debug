@@ -1,0 +1,175 @@
+@startuml Debug Adapter Design
+title Debug Adapter Protocol (DAP) Implementation
+skinparam componentStyle rectangle
+skinparam backgroundColor #FEFEFE
+
+package "DebugAdapter (src/adapter/DebugAdapter.ts)" {
+  
+  class "AIDebugSession" {
+    --
+    - THREAD_ID: number = 1
+    - variableHandles: Handles<string>
+    - breakpointIdMap: Map<number, string>
+    - debugger?: IDebugBackend
+    - isRunning: boolean
+    --
+    + initializeRequest()
+    + launchRequest()
+    + attachRequest()
+    + continueRequest()
+    + nextRequest()
+    + stepInRequest()
+    + stepOutRequest()
+    + gotoRequest()
+    + setBreakpointsRequest()
+    + stackTraceRequest()
+    + scopesRequest()
+    + variablesRequest()
+    + evaluateRequest()
+    + restartRequest()
+    + terminateRequest()
+    + disconnectRequest()
+    + threadsRequest()
+    + configurationDoneRequest()
+    --
+    - sendStoppedEvent(reason)
+    - log(message)
+  }
+  
+  class "ILaunchRequestArguments" {
+    --
+    + program: string
+    + cwd?: string
+    + stopOnEntry?: boolean
+    + gdbPath?: string
+    + backendType?: 'gdb' | 'lauterbach'
+  }
+  
+  class "IAttachRequestArguments" {
+    --
+    + processId: number
+    + gdbPath?: string
+  }
+}
+
+package "VS Code DAP" {
+  
+  class "LoggingDebugSession" {
+    --
+    + sendResponse(response)
+    + sendEvent(event)
+    + sendErrorResponse(response, error)
+    --
+    Protected:
+    + initializeRequest()
+    + launchRequest()
+    + ...
+  }
+  
+  class "StoppedEvent" {
+    --
+    + reason: string
+    + threadId: number
+  }
+  
+  class "ContinuedEvent" {
+    --
+    + threadId: number
+  }
+  
+  class "TerminatedEvent" {
+    --
+    + restart?: boolean
+  }
+  
+  class "OutputEvent" {
+    --
+    + category: 'console' | 'stdout' | 'stderr'
+    + output: string
+  }
+}
+
+package "Backend Layer" {
+  
+  interface "IDebugBackend" {
+    + launch()
+    + continue()
+    + stepOver()
+    + getStackTrace()
+    + getVariables()
+    + evaluate()
+  }
+  
+  class "BackendManager" {
+    + getBackend()
+    + executeOperation()
+  }
+}
+
+' Relationships
+LoggingDebugSession <|-- AIDebugSession : Extends
+AIDebugSession --> StoppedEvent : Sends
+AIDebugSession --> ContinuedEvent : Sends
+AIDebugSession --> TerminatedEvent : Sends
+AIDebugSession --> OutputEvent : Sends
+
+ILaunchRequestArguments ..> AIDebugSession : Parameters
+IAttachRequestArguments ..> AIDebugSession : Parameters
+
+AIDebugSession --> IDebugBackend : Uses via BackendManager
+AIDebugSession --> BackendManager : Calls
+
+' DAP Flow
+note top of AIDebugSession
+  **DAP Request Flow:**
+  
+  1. VS Code sends DAP request
+  2. AIDebugSession.handleRequest()
+  3. Call IDebugBackend method
+  4. Wait for result
+  5. Send DAP response
+  6. Send StoppedEvent if needed
+end note
+
+note right of LoggingDebugSession
+  **From @vscode/debugadapter:**
+  
+  Base class for all debug adapters.
+  Handles DAP protocol framing,
+  logging, and error handling.
+  
+  Extend this class and override
+  request handlers.
+end note
+
+note bottom of StoppedEvent
+  **Critical for UI Sync:**
+  
+  This event tells VS Code to:
+  - Update debug toolbar
+  - Highlight current line
+  - Refresh variables view
+  - Update call stack
+  
+  Must be sent after EVERY
+  stop reason (breakpoint, step, etc.)
+end note
+
+' Sequence Example
+package "Example: Step Over Flow" {
+  
+  rectangle "VS Code" as VC
+  rectangle "AIDebugSession" as DA
+  rectangle "GDBBackend" as GB
+  rectangle "GDB" as GDB
+  
+  VC -> DA : nextRequest()
+  DA -> GB : stepOver()
+  GB -> GDB : -exec-next
+  GDB --> GB : *stopped
+  GB --> DA : StopEvent
+  DA -> VC : StoppedEvent(reason='step')
+  VC -> VC : Update UI highlight
+}
+
+@enduml

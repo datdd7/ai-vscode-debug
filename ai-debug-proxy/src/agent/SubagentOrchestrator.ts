@@ -33,6 +33,14 @@
  *
  * Architecture Requirements:
  * ARCH-5       Parallel Subagent Execution [Satisfies $SW SW-5, SW-6]
+ *
+ * Software Requirements:
+ * REQ-AGENT-002  runParallelSubagents shall reject when task count > 50
+ * REQ-AGENT-003  runParallelSubagents shall respect concurrency limit
+ * REQ-AGENT-004  Timed-out tasks shall return exitCode: -1
+ * REQ-AGENT-005  Spawn failures shall return exitCode: -2
+ * REQ-SEC-002    Subagent commands must be whitelisted
+ * REQ-SEC-003    Subagent stdout is capped at 1MB
  ******************************************************************************/
 
 /******************************************************************************
@@ -50,7 +58,7 @@ import { logger } from "../utils/logging";
 const LOG = "SubagentOrchestrator";
 const MAX_TASKS = 50;
 const MAX_CONCURRENCY = 5;
-const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB per task
+const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB per task  /* $REQ REQ-SEC-003 */
 
 /******************************************************************************
  * Public Interface
@@ -98,7 +106,7 @@ export class SubagentOrchestrator {
      *
      * [Satisfies $ARCH ARCH-5]
      */
-    public async runParallelSubagents(
+    public async runParallelSubagents( /* $REQ REQ-AGENT-002 REQ-AGENT-003 */
         tasks: SubagentTask[],
         timeoutMs: number = 60000,
         maxConcurrency: number = MAX_CONCURRENCY,
@@ -152,7 +160,7 @@ export class SubagentOrchestrator {
             const config = vscode.workspace.getConfiguration("aiDebugProxy");
             const allowedCommands = config.get<string[]>("subagents.allowedCommands", []);
 
-            if (allowedCommands.length === 0 || !allowedCommands.includes(task.command)) {
+            if (allowedCommands.length === 0 || !allowedCommands.includes(task.command)) { /* $REQ REQ-SEC-002 */
                 logger.error(LOG, `[Subagent ${task.id}] Blocked by whitelist: ${task.command}`);
                 resolve({
                     id: task.id,

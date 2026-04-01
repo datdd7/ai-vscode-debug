@@ -1,0 +1,73 @@
+@startuml "Component Diagram - AI Debug Proxy"
+title AI Debug Proxy v3.0 - Hybrid Architecture
+
+skinparam componentStyle rectangle
+skinparam backgroundColor #FEFEFE
+skinparam defaultTextAlignment center
+
+legend right
+  NEW in v3 (Green)
+  MODIFIED from v2 (Yellow)
+  KEPT from v2 (Blue)
+endlegend
+
+package "VS Code Extension Host" {
+  
+  component "DebugAdapter\n(NEW)" as DA #lightgreen
+  
+  component "BackendManager\n(NEW)" as BM #lightgreen
+  
+  interface "IDebugBackend\n(NEW)" as IDB #lightgreen
+  
+  component "GDBBackend\n(NEW)" as GDB #lightgreen
+  
+  component "LauterbachBackend\n(Phase 3)" as LAUT #lightgreen
+  
+  package "MI2 Protocol" {
+    component "MI2" as MI2 #lightgreen
+    component "MI_Parser" as MIP #lightgreen
+  }
+  
+  component "InputValidator\n(NEW)" as IV #lightgreen
+  
+  component "HTTP Router\n(MODIFIED)" as ROUTER #lightyellow
+  
+  component "HTTP Server\n(KEPT)" as HTTP #lightblue
+  component "ContextAggregator\n(KEPT)" as CTX #lightblue
+  component "Watch Services\n(KEPT)" as WATCH #lightblue
+  component "LSP Integration\n(KEPT)" as LSP #lightblue
+  
+  component "Extension\n(MODIFIED)" as EXT #lightyellow
+}
+
+package "External" {
+  component "VS Code DAP Client" as VSCODE
+  component "AI Agent (HTTP)" as AI
+  component "GDB Process" as GDBP
+  component "TRACE32 Process" as LAUTP
+}
+
+VSCODE ..> DA : DAP Protocol
+AI ..> HTTP : HTTP REST API
+
+DA --> BM : Uses
+ROUTER --> BM : Routes to
+BM --> IDB : Creates
+IDB <|.. GDB : Implements
+IDB <|.. LAUT : Implements
+GDB --> MI2 : Uses
+MI2 --> MIP : Uses
+GDB --> GDBP : Spawns
+LAUT --> LAUTP : Connects
+
+HTTP --> ROUTER
+ROUTER --> CTX
+ROUTER --> WATCH
+ROUTER --> LSP
+
+DA --> IV : Validates
+ROUTER --> IV : Validates
+EXT --> DA : Registers
+EXT --> HTTP : Starts
+
+@enduml

@@ -1,0 +1,51 @@
+@startuml Class Diagram
+title Class Diagram - AI Debug Proxy v3.0
+
+package "core" {
+    interface IDebugBackend {
+        + start(): Promise<void>
+        + stop(): Promise<void>
+        + step(): Promise<void>
+        + next(): Promise<void>
+        + continue(): Promise<void>
+    }
+}
+
+package "protocol.mi2" {
+    class MI2 {
+        - process: ChildProcess
+        + sendCommand(cmd: string): Promise<MIResult>
+    }
+    class mi_parse {
+        + parseMI(line: string): MINode
+    }
+}
+
+package "backend" {
+    class BackendManager {
+        - backends: Map<string, IDebugBackend>
+        + getBackend(id: string): IDebugBackend
+    }
+    class GDBBackend {
+        - mi2: MI2
+        + start(): Promise<void>
+    }
+}
+
+package "server" {
+    class HttpServer {
+        - router: Router
+        + start(port: number): void
+    }
+    class Router {
+        + handleRequest(req: Request): Response
+    }
+}
+
+GDBBackend ..|> IDebugBackend
+GDBBackend *-- MI2
+BackendManager o-- IDebugBackend
+HttpServer *-- Router
+Router --> BackendManager
+
+@enduml

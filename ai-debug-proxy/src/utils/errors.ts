@@ -25,6 +25,11 @@
  *
  * Architecture Requirements:
  * ARCH-2       Debug Controller Pattern [Satisfies $SW SW-2]
+ *
+ * Software Requirements:
+ * REQ-ERR-001  DebugError shall carry code and message
+ * REQ-ERR-002  SessionNotActiveError shall have code SESSION_NOT_ACTIVE
+ * REQ-ERR-003  InvalidOperationError shall have code INVALID_OPERATION
  ******************************************************************************/
 
 /******************************************************************************
@@ -83,7 +88,7 @@ export enum DebugErrorCode {
  *
  * Provides structured error information for API responses.
  */
-export class DebugError extends Error {
+export class DebugError extends Error { /* $REQ REQ-ERR-001 */
   /**
    * @brief Create a DebugError.
    *

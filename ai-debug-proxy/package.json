@@ -2,7 +2,7 @@
     "name": "ai-debug-proxy",
     "displayName": "AI Debug Proxy",
     "description": "HTTP proxy exposing VS Code DAP operations as a REST API for AI agents",
-    "version": "2.1.0",
+    "version": "3.0.0-alpha.1",
     "publisher": "datdang",
     "repository": {
         "type": "git",
@@ -20,6 +20,28 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "debuggers": [
+            {
+                "type": "ai-debug",
+                "label": "AI Debug Proxy v3.a1",
+                "configurationSnippets": [
+                    {
+                        "label": "AI Debug: Launch Program",
+                        "description": "Debug a program using AI Debug Proxy with GDB backend",
+                        "body": {
+                            "type": "ai-debug",
+                            "request": "launch",
+                            "name": "${1:Debug}",
+                            "program": "^\"\\${workspaceFolder}/${2:build/app}\"",
+                            "cwd": "^\"\\${workspaceFolder}\"",
+                            "stopOnEntry": true,
+                            "gdbPath": "gdb",
+                            "backendType": "gdb"
+                        }
+                    }
+                ]
+            }
+        ],
         "commands": [
             {
                 "command": "ai-debug-proxy.start",
@@ -78,25 +100,27 @@
         "watch": "node esbuild.js --watch",
         "package": "npx @vscode/vsce package --no-dependencies",
         "lint": "tsc --noEmit",
-        "test": "jest src",
-        "test:e2e": "playwright test",
-        "test:pact:consumer": "vitest run --config vitest.config.pact.ts",
-        "publish:pact": "../scripts/publish-pact.sh",
-        "can:i:deploy:consumer": "PACTICIPANT=ai-debug-proxy-consumer ../scripts/can-i-deploy.sh",
-        "record:consumer:deployment": "PACTICIPANT=ai-debug-proxy-consumer ../scripts/record-deployment.sh"
+        "test": "vitest run",
+        "test:watch": "vitest --watch",
+        "test:coverage": "vitest run --coverage",
+        "test:e2e": "node ./out/test/runTest.js"
     },
     "devDependencies": {
-        "@pact-foundation/pact": "^13.0.0",
-        "@playwright/test": "^1.54.1",
-        "@seontechnologies/playwright-utils": "latest",
-        "@types/jest": "^30.0.0",
+        "@types/glob": "^8.1.0",
+        "axios": "^1.7.0",
+        "@types/mocha": "^10.0.10",
         "@types/node": "^20.0.0",
         "@types/vscode": "^1.88.0",
-        "axios": "^1.13.6",
+        "@vitest/coverage-v8": "^3.2.4",
+        "@vscode/test-electron": "^2.5.2",
         "esbuild": "^0.20.0",
-        "jest": "^30.3.0",
-        "ts-jest": "^29.4.6",
+        "glob": "^13.0.6",
+        "mocha": "^11.7.5",
         "typescript": "^5.3.0",
-        "vitest": "^3.0.0"
+        "vitest": "^3.2.4"
+    },
+    "dependencies": {
+        "@vscode/debugadapter": "^1.68.0",
+        "@vscode/debugprotocol": "^1.68.0"
     }
 }
