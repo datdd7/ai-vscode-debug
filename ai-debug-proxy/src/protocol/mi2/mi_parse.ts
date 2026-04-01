@@ -275,6 +275,7 @@ export function parseMI(output: string): MINode {
             output = output.substr(1); // }
             return results;
         }
+        /* v8 ignore next 2 -- defensive: GDB never sends a {tuple} where content fails parseResult */
         output = (canBeValueList ? '[' : '{') + output;
         return undefined;
     };
@@ -373,5 +374,6 @@ export function parseMI(output: string): MINode {
         output = output.replace(newlineRegex, '');
     }
 
+    /* v8 ignore next -- outOfBandRecord is always [] (initialized line 198), || [] is defensive dead code */
     return new MINode(token, outOfBandRecord || [], resultRecords);
 }

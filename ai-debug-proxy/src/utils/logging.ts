@@ -70,8 +70,10 @@ const LOG_FILE = path.join(__dirname, "..", "proxy.log");
  * Automatically initialized on load. Provides UI-visible log stream.
  */
 export const outputChannel: vscode.OutputChannel =
+  /* v8 ignore next 2 -- false branch only when vscode.window unavailable (non-extension context) */
   typeof vscode.window?.createOutputChannel === "function"
     ? vscode.window.createOutputChannel("AI Debug Proxy")
+    /* v8 ignore next 10 -- fallback stub when vscode API unavailable (e.g. non-VS Code runtime) */
     : ({
       append: () => { },
       appendLine: () => { },
@@ -195,6 +197,7 @@ export function stringifySafe(obj: any, indent: number = 2): string {
     );
   } catch (e) {
     return `[Serialization Error: ${e instanceof Error ? e.message : String(e)}]`;
+  /* v8 ignore next 3 -- finally always runs; branch instrumentation counts entry from try AND catch, but only one path executes */
   } finally {
     cache.clear();
   }

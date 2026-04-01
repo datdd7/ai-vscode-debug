@@ -374,6 +374,24 @@ describe('MI Parser', () => {
             expect(result?.resultRecords?.results).toBeDefined();
         });
 
+        it('valueOf returns start immediately when path is empty string (line 95)', () => {
+            const start = [['key', 'val']] as [string, any][];
+            expect(MINode.valueOf(start, '')).toBe(start);
+        });
+
+        it('parseMI wraps absent outOfBandRecord in [] (line 376)', () => {
+            const result = parseMI('1^done\n');
+            expect(Array.isArray(result?.outOfBandRecord)).toBe(true);
+            expect(result?.outOfBandRecord).toHaveLength(0);
+        });
+
+        it('parseTupleOrList handles tuple (canBeValueList=false) correctly (line 278)', () => {
+            const result = parseMI('^done,info={a="1",b="2"}\n');
+            expect(result?.resultRecords?.resultClass).toBe('done');
+            const info = MINode.valueOf(result?.resultRecords?.results, 'info');
+            expect(info).toBeDefined();
+        });
+
         it('parseCString returns empty string when stream record has no opening quote (lines 211-212)', () => {
             // After consuming '~', output = 'no-string\n' which doesn't start with '"'
             // parseCString early-return path: if (output[0] !== '"') return ''

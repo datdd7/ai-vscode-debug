@@ -223,6 +223,28 @@ describe('Router - PI3 Operations', () => {
             expect(result.body.data.isRunning).toBe(true);
             mockBackend.isRunning.mockReturnValue(false);
         });
+
+        it('GET /api/status with no active backend (false branches lines 143-144)', async () => {
+            vi.spyOn(backendManager, 'getCurrentBackend').mockReturnValueOnce(null as any);
+            const result = await handleRequest('GET', '/api/status', null, {} as any);
+            expect(result.statusCode).toBe(200);
+            expect(result.body.data.hasActiveSession).toBe(false);
+            expect(result.body.data.isRunning).toBe(false);
+        });
+
+        it('POST /api/debug/execute_operation routes same as /api/debug (branch line 94)', async () => {
+            mockBackend.restart.mockResolvedValue({});
+            const result = await handleRequest('POST', '/api/debug/execute_operation', {
+                operation: 'restart'
+            }, {} as any);
+            expect(result.statusCode).toBe(200);
+        });
+
+        it('normalizePath returns "/" for root URL (branch line 73)', async () => {
+            const result = await handleRequest('GET', '/', null, {} as any);
+            // Root URL "/" → normalizePath returns "/" → no route matches → throws Unknown route
+            expect(result.statusCode).toBe(500);
+        });
     });
 
     describe('Create Debugger', () => {
@@ -321,6 +343,14 @@ describe('Router - PI3 Operations', () => {
             expect(mockBackend.getStackTrace).toHaveBeenCalled();
         });
 
+        it('routes "stack_trace" with threadId param (branch line 346)', async () => {
+            mockBackend.getStackTrace.mockResolvedValue([]);
+            await handleRequest('POST', '/api/debug', {
+                operation: 'stack_trace', params: { threadId: 2 }
+            }, {} as any);
+            expect(mockBackend.getStackTrace).toHaveBeenCalledWith(2);
+        });
+
         it('routes "get_variables" to backend.getVariables()', async () => {
             mockBackend.getVariables.mockResolvedValue([]);
             const result = await handleRequest('POST', '/api/debug', {
@@ -337,6 +367,14 @@ describe('Router - PI3 Operations', () => {
             }, {} as any);
             expect(result.statusCode).toBe(200);
             expect(mockBackend.getArguments).toHaveBeenCalled();
+        });
+
+        it('routes "get_arguments" with frameId param (branch line 350)', async () => {
+            mockBackend.getArguments.mockResolvedValue([]);
+            await handleRequest('POST', '/api/debug', {
+                operation: 'get_arguments', params: { frameId: 1 }
+            }, {} as any);
+            expect(mockBackend.getArguments).toHaveBeenCalledWith(1);
         });
 
         it('routes "get_globals" to backend.getGlobals()', async () => {
@@ -382,6 +420,15 @@ describe('Router - PI3 Operations', () => {
             }, {} as any);
             expect(result.statusCode).toBe(200);
             expect(mockBackend.writeMemory).toHaveBeenCalled();
+        });
+
+        it('write_memory with no data field writes empty buffer (branch line 368)', async () => {
+            mockBackend.writeMemory.mockResolvedValue(undefined);
+            const result = await handleRequest('POST', '/api/debug', {
+                operation: 'write_memory', params: { address: 0x3000 }
+            }, {} as any);
+            expect(result.statusCode).toBe(200);
+            expect(mockBackend.writeMemory).toHaveBeenCalledWith(0x3000, Buffer.alloc(0));
         });
 
         it('routes "list_threads" to backend.listThreads()', async () => {
@@ -448,6 +495,17 @@ describe('Router - PI3 Operations', () => {
             }, {} as any);
             expect(result.statusCode).toBe(200);
             expect(result.body.sessionId).toBe('v3-session');
+        });
+
+        it('launch with stopOnEntry=true returns stopReason "entry" (branch line 248)', async () => {
+            setLaunchDelegate(null as any);
+            mockBackend.initialize.mockResolvedValue(undefined);
+            mockBackend.launch.mockResolvedValue(undefined);
+            const result = await handleRequest('POST', '/api/debug', {
+                operation: 'launch', params: { program: '/a.out', stopOnEntry: true }
+            }, {} as any);
+            expect(result.statusCode).toBe(200);
+            expect(result.body.stopReason).toBe('entry');
         });
 
         it('launch with delegate uses delegate and returns vscode session', async () => {

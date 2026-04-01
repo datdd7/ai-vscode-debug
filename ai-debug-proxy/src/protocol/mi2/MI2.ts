@@ -142,6 +142,7 @@ export class MI2 extends EventEmitter {
             // ADP-004: Wait for the (gdb) prompt before sending init commands
             let readyHandled = false;
             const onReady = async () => {
+                /* v8 ignore next 2 -- this.once() already prevents double-fire; guard is defensive */
                 if (readyHandled) return;
                 readyHandled = true;
                 try {
@@ -232,7 +233,7 @@ export class MI2 extends EventEmitter {
             }
 
             const mi: MINode = parseMI(line);
-            
+            /* v8 ignore next 2 -- parseMI always returns MINode (never null); defensive guard */
             if (!mi) continue;
             
             // Capture console payload if it is a stream
@@ -251,6 +252,7 @@ export class MI2 extends EventEmitter {
                 this.pendingCommands.delete(mi.token);
                 
                 if (mi.resultRecords && (mi.resultRecords.resultClass === 'done' || mi.resultRecords.resultClass === 'running')) {
+                    /* v8 ignore next -- results is always [] (parseMI initializes it); both || branches are defensive */
                     const resultData = this.normalize(mi.resultRecords.results || [], true) || {};
                     
                     // Attach accumulated console output for statements like -interpreter-exec
@@ -278,6 +280,7 @@ export class MI2 extends EventEmitter {
                             const event: MIStoppedEvent = {
                                 reason: this.extractStringValue(record.output, 'reason') || 'unknown',
                                 signalName: this.extractStringValue(record.output, 'signal-name'),
+                                /* v8 ignore next -- outer || 1 only if parseInt→NaN; GDB always sends numeric thread-id */
                                 threadId: parseInt(this.extractStringValue(record.output, 'thread-id') || '1') || 1,
                                 frame: this.normalize(record.output.find(o => o[0] === 'frame')?.[1])
                             };

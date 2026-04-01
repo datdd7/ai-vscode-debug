@@ -3,6 +3,7 @@
  * Converted from .skip (jest) to vitest — T1-1
  */
 import { vi, it } from 'vitest';
+import * as vscode from 'vscode';
 
 vi.mock('fs', () => ({ appendFileSync: vi.fn() }));
 
@@ -167,5 +168,24 @@ describe('SubagentOrchestrator', () => {
         }]);
         expect(results[0].stderr).toContain('error');
         expect(results[0].success).toBe(true);
+    });
+
+    // ---------------------------------------------------------------
+    // Spawn error (ENOENT) — covers child.on('error', ...) lines 231-244
+    // ---------------------------------------------------------------
+    it('spawn error handler resolves with exitCode -2 (lines 231-244)', async () => {
+        vi.mocked(vscode.workspace.getConfiguration).mockReturnValueOnce({
+            get: vi.fn((key: string) =>
+                key === 'subagents.allowedCommands' ? ['/nonexistent-binary-xyz'] : []
+            ),
+        } as any);
+        const results = await orchestrator.runParallelSubagents([{
+            id: 'spawn-err',
+            command: '/nonexistent-binary-xyz',
+            args: [],
+        }]);
+        expect(results[0].exitCode).toBe(-2);
+        expect(results[0].success).toBe(false);
+        expect(results[0].stderr).toBeTruthy();
     });
 });

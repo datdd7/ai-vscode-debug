@@ -578,3 +578,62 @@ describe('MI2 start()', () => {
         }
     });
 });
+
+// ─── Branch coverage for extractStringValue and MI output edge cases ──────────
+describe('MI2 branch coverage — handleOutput edge cases', () => {
+    let mi2: MI2;
+    let inject: (data: string) => void;
+
+    beforeEach(() => {
+        spawnMock.mockReturnValue(createMockProcess());
+        mi2 = new MI2('gdb', ['--interpreter=mi2']);
+        inject = (data: string) =>
+            (mi2 as any).handleOutput(data);
+    });
+
+    it('extractStringValue returns undefined when output is null (branch line 356)', () => {
+        // Access private method directly
+        const result = (mi2 as any).extractStringValue(null, 'reason');
+        expect(result).toBeUndefined();
+    });
+
+    it('extractStringValue returns undefined when output is empty array (branch line 356)', () => {
+        const result = (mi2 as any).extractStringValue([], 'reason');
+        expect(result).toBeUndefined();
+    });
+
+    it('error record without results array uses fallback "GDB error" (branch line 268)', async () => {
+        const mockStdin = { write: vi.fn() };
+        (mi2 as any).process = { stdin: mockStdin };
+        const cmd = mi2.sendCommand('-bad-cmd');
+        await Promise.resolve();
+        const token = (mi2 as any).token - 1;
+        // Inject ^error with no msg/results — should use fallback
+        inject(`${token}^error\n`);
+        await expect(cmd).rejects.toThrow('GDB error');
+    });
+
+    it('stopped event without reason defaults to "unknown" (branch line 279)', () => {
+        const stoppedSpy = vi.fn();
+        mi2.on('stopped', stoppedSpy);
+        inject('*stopped,thread-id="1",frame={func="main",file="main.c",line="1"}\n');
+        expect(stoppedSpy).toHaveBeenCalled();
+        expect(stoppedSpy.mock.calls[0][0].reason).toBe('unknown');
+    });
+
+    it('stopped event without signal-name is undefined (branch line 280)', () => {
+        const stoppedSpy = vi.fn();
+        mi2.on('stopped', stoppedSpy);
+        inject('*stopped,reason="end-stepping-range",thread-id="1",frame={func="main",file="main.c",line="1"}\n');
+        expect(stoppedSpy).toHaveBeenCalled();
+        expect(stoppedSpy.mock.calls[0][0].signalName).toBeUndefined();
+    });
+
+    it('stopped event without thread-id defaults to threadId=1 (branch line 281)', () => {
+        const stoppedSpy = vi.fn();
+        mi2.on('stopped', stoppedSpy);
+        inject('*stopped,reason="breakpoint-hit",frame={func="main",file="main.c",line="1"}\n');
+        expect(stoppedSpy).toHaveBeenCalled();
+        expect(stoppedSpy.mock.calls[0][0].threadId).toBe(1);
+    });
+});
