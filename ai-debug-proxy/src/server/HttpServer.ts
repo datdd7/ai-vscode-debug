@@ -202,8 +202,15 @@ export class HttpServer {
         const method = req.method || "GET";
         const url = req.url || "/";
 
-        // CORS headers for local access
-        res.setHeader("Access-Control-Allow-Origin", "*");
+        console.log(`[${LOG}] Incoming request: ${method} ${url}`);
+
+        // ADP-023: restrict CORS — allow only localhost/127.0.0.1 origins.
+        // Non-matching origins get no CORS header, so browsers block the request.
+        const origin = req.headers['origin'] || '';
+        const isLocalOrigin = !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        if (isLocalOrigin) {
+            res.setHeader("Access-Control-Allow-Origin", origin || "http://localhost");
+        }
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         res.setHeader("Access-Control-Allow-Headers", "Content-Type");
         res.setHeader("Content-Type", "application/json");

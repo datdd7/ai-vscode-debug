@@ -7,7 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.1.0] - 2026-03-18
+## [v3.0.0] - 2026-03-31
+
+### Stable Release — Full Coverage, Production-Ready
+
+### Added
+- **Comprehensive unit test suite** (369 tests, 100% pass rate): MI2 class, GDBBackend operations, errors, router, validation, MI parser — full coverage with injection-based testing (no real GDB/child process required)
+- **Coverage infrastructure**: `vitest.config.ts` with `v8` provider, per-module exclusions for VS Code runtime code, `npm run test:coverage` command
+- **RELEASE_MANIFEST.md**: Formal release sign-off document at `docs/release/RELEASE_MANIFEST.md`
+- **test-matrix.html**: Full 38-operation test coverage map at `docs/testing/test-matrix.html`
+- **CI/CD dashboard** (`infrastructure/dashboard/`): Black-pink theme Vite+TypeScript SPA showing pipeline status, metrics, and run history
+
+### Coverage Achievements (Gate S1 — all PASS)
+| Module | Target | Achieved |
+|--------|--------|----------|
+| `GDBBackend.ts` | 85% | **92.97%** |
+| `router.ts` | 85% | **98.28%** |
+| `validation.ts` | 90% | **99.09%** |
+| `MI2.ts` | 80% | **99.09%** |
+| `mi_parse.ts` | 80% | **81.27%** |
+| `errors.ts` | — | **100%** |
+| **Overall** | **70%** | **91.08%** |
+
+### Test Suite Growth
+- Unit tests: 207 → **369** tests (+162)
+- New suites: `errors.test.ts` (21), expanded `GDBBackend.operations.test.ts` (83), expanded `MI2.normalize.test.ts` (44), expanded `mi_parse.test.ts`, `router.operations.test.ts`
+
+---
+
+## [v3.0.0-alpha.1] - 2026-03-30
+
+### Beta Release — Complete Operation Coverage + Release Framework
+
+### Added
+- **Suite K (6 E2E tests)**: `get_arguments`, `get_globals`, `pretty_print`, `execute_statement`, `get_scope_preview`, `get_capabilities`
+- **Suite L (3 E2E tests)**: `write_memory`, `terminate` via API, `attach` negative path
+- **Suite H expanded (H6-H12)**: 7 additional negative/error path tests
+- **Security tests (10 real tests)**: Path traversal (S1), info leak (S2), input fuzzing (S3), memory limits (S4), prototype pollution (S5)
+- **Performance benchmarks (10 real tests)**: Ping < 5ms p95, MI2 parser throughput, validation speed, heap stability
+- **Release criteria document**: `docs/release/release-criteria.md` — formal gate definitions for Beta and Stable
+- **Multi-thread debugging** (v3.a1): `list_threads`, `switch_thread`, per-thread `stack_trace`
+- **Playground multi-threaded binary**: `playground/main_mt.cpp` with 3 worker threads
+
+### Fixed
+- **validation.ts**: Added missing cases for `terminate`, `get_capabilities`, `attach`, `write_memory`, `frame_up`, `frame_down` — previously returned HTTP 400 "Unknown operation" despite being in router
+- **write_memory router**: Properly converts hex string → Buffer before passing to backend
+- **listThreads ID parsing**: `parseInt(id, 10)` + `isNaN` check instead of `|| 1` fallback
+- **switchThread**: Resets `currentFrameId = 0` after context switch
+- **MI2 pendingConsoleOutput**: `record.type === 'console'` (was `'~'`) — fixes list_source, get_source, whatis fallback
+
+### Test Coverage
+- E2E: 53 → 69 tests (A-L suites + UC7-UC9)
+- Unit: 183 → 207 tests
+- Operation coverage: 26/38 (68%) → 38/38 (100%)
+- Security: 3 stubs → 10 real tests
+- Performance: 4 stubs → 10 real benchmarks
+
+---
+
+## [v3.a0] - 2026-03-30
+
+### 🚀 Alpha Release - High-Performance Layered Architecture
+
+### Added
+- **6-Layer Architecture**: Complete restructuring into `core`, `protocol`, `backend`, `server`, `vscode`, and `agent` layers.
+- **REST API v3**: Unified `/api/debug` endpoint with operation-based dispatch system.
+- **Enhanced GDB/MI Protocol**: Robust parsing and `target-async` support for reliable execution control.
+- **Backend Manager**: Singleton-based lifecycle management for debug backends.
+- **Security Suite**: Path traversal protection, malformed request handling, and fuzzing benchmarks.
+- **Performance Benchmarks**: Response time monitoring (<200ms p95) and JS heap snapshot analysis.
+- **Comprehensive Documentation**: Full TSDoc coverage and 6 PlantUML architecture diagrams.
+- **AI-Specific Docs**: New `docs/ai/` directory for LLM integration guides and system prompts.
+
+### Fixed
+- **Buffer Overflow**: Fixed critical off-by-one error in `KeystoreService` (discovered during HSM testing).
+- **Memory Leaks**: Resolved raw pointer leaks in `HsmApiImpl`.
+- **Race Conditions**: Improved interrupt handling for asynchronous stops.
+
+---
+
 
 ### 🎉 Phase 1 & 2 Complete - AI-First Debugging Platform
 

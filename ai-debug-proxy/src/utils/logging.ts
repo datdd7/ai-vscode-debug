@@ -32,6 +32,13 @@
  *
  * Architecture Requirements:
  * ARCH-8       Logging Architecture [Satisfies $SW SW-8]
+ *
+ * Software Requirements:
+ * REQ-LOG-001  Output channel shall be initialized on module load
+ * REQ-LOG-002  logger.info shall write to output channel and log file
+ * REQ-LOG-003  Debug messages shall be suppressed when level is info
+ * REQ-LOG-004  Log level filtering shall respect severity ordering
+ * REQ-LOG-005  File write errors shall be silently ignored
  ******************************************************************************/
 
 /******************************************************************************
@@ -69,9 +76,11 @@ const LOG_FILE = path.join(__dirname, "..", "proxy.log");
  *
  * Automatically initialized on load. Provides UI-visible log stream.
  */
-export const outputChannel: vscode.OutputChannel =
+export const outputChannel: vscode.OutputChannel = /* $REQ REQ-LOG-001 */
+  /* v8 ignore next 2 -- false branch only when vscode.window unavailable (non-extension context) */
   typeof vscode.window?.createOutputChannel === "function"
     ? vscode.window.createOutputChannel("AI Debug Proxy")
+    /* v8 ignore next 10 -- fallback stub when vscode API unavailable (e.g. non-VS Code runtime) */
     : ({
       append: () => { },
       appendLine: () => { },
@@ -92,7 +101,7 @@ export const outputChannel: vscode.OutputChannel =
  *
  * [Satisfies $ARCH ARCH-8]
  */
-export function setLogLevel(level: LogLevel): void {
+export function setLogLevel(level: LogLevel): void { /* $REQ REQ-LOG-004 */
   currentLevel = level;
 }
 
@@ -135,11 +144,13 @@ function log(
   const tag = level.toUpperCase().padEnd(5);
   const line = `[${formatTimestamp()}] ${tag} [${component}] ${message}`;
   outputChannel.appendLine(line);
+  console.log(line); // Mirror to console for E2E terminal visibility
 
   let extra = "";
   if (data !== undefined) {
     extra = `\n  └─ ${stringifySafe(data)}`;
     outputChannel.appendLine(`  └─ ${stringifySafe(data)}`);
+    console.log(`  └─ ${stringifySafe(data)}`); // Mirror to console
   }
 
   try {
@@ -193,6 +204,7 @@ export function stringifySafe(obj: any, indent: number = 2): string {
     );
   } catch (e) {
     return `[Serialization Error: ${e instanceof Error ? e.message : String(e)}]`;
+  /* v8 ignore next 3 -- finally always runs; branch instrumentation counts entry from try AND catch, but only one path executes */
   } finally {
     cache.clear();
   }

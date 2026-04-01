@@ -1,0 +1,284 @@
+:root {
+  --bg-primary:     #0a0a0a;
+  --bg-secondary:   #111111;
+  --bg-tertiary:    #1a1a1a;
+  --pink-hot:       #FF1493;
+  --pink-light:     #FF69B4;
+  --pink-glow:      rgba(255, 20, 147, 0.15);
+  --pink-dim:       rgba(255, 20, 147, 0.4);
+  --status-success: #FF1493;
+  --status-failure: #FF4444;
+  --status-pending: #444444;
+  --text-primary:   #F5F5F5;
+  --text-secondary: #AAAAAA;
+  --text-muted:     #666666;
+  --border-default: #2a2a2a;
+  --font-mono:      'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans:      'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --radius-sm:      4px;
+  --radius-md:      8px;
+  --radius-lg:      12px;
+  --radius-pill:    9999px;
+  --shadow-card:    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+#app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+/* ── Card ─────────────────────────────────────────── */
+
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Quality Gate ─────────────────────────────────── */
+
+.quality-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.gate-header {
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  border: 1px solid transparent;
+}
+
+.gate-header.pass {
+  background: rgba(255, 20, 147, 0.08);
+  border-color: var(--pink-dim);
+}
+
+.gate-header.fail {
+  background: rgba(255, 68, 68, 0.08);
+  border-color: rgba(255, 68, 68, 0.4);
+}
+
+.gate-verdict {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.gate-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gate-header.pass .gate-dot { background: var(--pink-hot); box-shadow: 0 0 8px var(--pink-hot); }
+.gate-header.fail .gate-dot { background: var(--status-failure); box-shadow: 0 0 8px var(--status-failure); }
+
+.gate-verdict-label {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.gate-header.pass .gate-verdict-label { color: var(--pink-hot); }
+.gate-header.fail .gate-verdict-label { color: var(--status-failure); }
+
+.gate-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.gate-meta a.gate-link {
+  color: var(--pink-light);
+  text-decoration: none;
+}
+
+.gate-meta a.gate-link:hover { text-decoration: underline; }
+
+.gate-meta .gate-branch {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.gate-meta code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Gate Section ─────────────────────────────────── */
+
+.gate-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--pink-hot);
+}
+
+/* ── Job Chips ────────────────────────────────────── */
+
+.jobs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.job-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  transition: opacity 150ms ease;
+}
+
+.job-chip.pass {
+  background: var(--pink-glow);
+  border-color: var(--pink-dim);
+  color: var(--pink-light);
+}
+
+.job-chip.fail {
+  background: rgba(255, 68, 68, 0.12);
+  border-color: rgba(255, 68, 68, 0.35);
+  color: var(--status-failure);
+}
+
+.job-chip.pending {
+  background: var(--bg-tertiary);
+  border-color: var(--border-default);
+  color: var(--text-muted);
+}
+
+.chip-icon { font-size: 13px; font-weight: 700; }
+.chip-name { font-weight: 500; }
+.chip-dur  { font-size: 11px; opacity: 0.7; }
+
+/* ── Test Summary ─────────────────────────────────── */
+
+.test-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.test-stat.pass { color: var(--pink-hot); font-weight: 600; font-family: var(--font-mono); }
+.test-stat.muted { color: var(--text-muted); }
+.test-sep { color: var(--border-default); }
+
+/* ── Coverage Bars ────────────────────────────────── */
+
+.coverage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.coverage-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.coverage-label {
+  width: 130px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.coverage-bar-bg {
+  flex: 1;
+  height: 18px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.coverage-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  transition: width 600ms ease;
+}
+
+.coverage-bar-fill.pass { background: var(--pink-hot); }
+.coverage-bar-fill.fail { background: var(--status-failure); opacity: 0.7; }
+
+.coverage-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text-primary);
+  opacity: 0.5;
+}
+
+.coverage-pct {
+  width: 46px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.coverage-pct.pass { color: var(--pink-hot); }
+.coverage-pct.fail { color: var(--status-failure); }
+
+/* ── Loading ──────────────────────────────────────── */
+
+.loading {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.loading::before {
+  content: '';
+  display: block;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 16px;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--pink-hot);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

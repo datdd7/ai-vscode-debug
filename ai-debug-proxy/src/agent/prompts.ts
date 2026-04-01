@@ -31,6 +31,9 @@
  *
  * Architecture Requirements:
  * ARCH-3       RESTful HTTP API over localhost
+ *
+ * Software Requirements:
+ * REQ-AGENT-001  subagentCreatorPrompt shall export a non-empty string
  ******************************************************************************/
 
 /**

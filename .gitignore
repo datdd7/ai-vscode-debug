@@ -29,3 +29,5 @@ Thumbs.db
 playground/build/*
 *.txt 
 *.logacp-research/
+*.venv*infrastructure/dashboard/node_modules
+infrastructure/dashboard/dist

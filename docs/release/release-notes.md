@@ -2,6 +2,47 @@
 
 ---
 
+## v3.0.0-alpha.1 — 2026-03-30
+
+### Beta Release — Complete Operation Coverage
+
+**38/38 operations tested. 207 unit tests. 69 E2E tests. 10 security tests. 10 performance benchmarks.**
+
+#### What's New vs v3.0.0-alpha.1
+
+- **Suite K (6 E2E tests)**: `get_arguments`, `get_globals`, `pretty_print`, `execute_statement`, `get_scope_preview`, `get_capabilities`
+- **Suite L (3 E2E tests)**: `write_memory`, `terminate` via API, `attach` negative path
+- **Suite H expanded (H6-H12)**: 7 additional negative test cases
+- **Security tests**: 10 real tests (path traversal, info leak, fuzzing, memory limits, prototype pollution)
+- **Performance benchmarks**: 10 real benchmarks (ping <5ms p95, MI2 parser throughput, validation speed, heap stability)
+- **Release criteria doc**: `docs/release/release-criteria.md` with formal gate definitions
+- **Multi-thread debugging**: `list_threads`, `switch_thread`, per-thread `stack_trace`
+
+#### Bug Fixes
+
+- `validation.ts`: Added missing cases for `terminate`, `get_capabilities`, `attach`, `write_memory`, `frame_up`, `frame_down` — previously returned HTTP 400 "Unknown operation"
+- `router.ts`: `write_memory` now correctly converts hex string → Buffer
+- `GDBBackend.ts`: `listThreads` uses `parseInt(id, 10)` + `isNaN` check (correct for thread ID 0)
+- `GDBBackend.ts`: `switchThread` resets `currentFrameId = 0` after context switch
+- `MI2.ts`: `pendingConsoleOutput` uses `record.type === 'console'` (was `'~'`)
+
+#### Known Limitations
+
+- `attach` only tested as negative path (missing processId → 400)
+- Code coverage not yet measured (pending `npm run test:coverage` baseline)
+- CI pipeline not yet triggered on this branch
+
+---
+
+## v3.0.0-alpha.1 — 2026-03-30
+
+### Alpha Release — 6-Layer Architecture + Audit Fixes
+
+Complete architectural restructuring into `core`, `protocol`, `backend`, `server`, `vscode`, and `agent` layers.
+Fixed all 16 ADP audit findings. Added E2E suites A-J (53 tests). 183 unit tests pass.
+
+---
+
 ## 0.1.b6 — 2026-03-14
 
 ### Summary

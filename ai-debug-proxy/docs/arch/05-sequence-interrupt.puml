@@ -1,0 +1,22 @@
+@startuml Sequence Diagram - Interrupt
+title Sequence Diagram: Async Interrupt (Ctrl-C)
+
+actor Agent as "AI Agent"
+participant Router as "Router"
+participant BackendManager as "BackendManager"
+participant GDBBackend as "GDBBackend"
+participant MI2 as "MI2"
+participant GDB as "GDB Process"
+
+Agent -> Router : POST /api/debug/execute_operation { op: 'interrupt' }
+Router -> BackendManager : getBackend('gdb')
+BackendManager -> GDBBackend : interrupt()
+GDBBackend -> MI2 : sendCommand('-exec-interrupt')
+MI2 -> GDB : write('-exec-interrupt')
+GDB --> MI2 : *stopped,reason="signal-received",signal-name="SIGINT"
+MI2 --> GDBBackend : emits 'stopped'
+GDBBackend --> BackendManager : stopped event
+BackendManager --> Router : success
+Router --> Agent : 200 OK { success: true, status: 'stopped' }
+
+@enduml

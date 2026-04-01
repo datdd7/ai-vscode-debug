@@ -1,0 +1,18 @@
+@startuml State Machine
+title State Machine Diagram - GDBBackend
+
+[*] --> IDLE
+
+IDLE --> STARTING : launch() / start()
+STARTING --> RUNNING : *running event
+STARTING --> ERROR : spawn failure
+
+RUNNING --> STOPPED : *stopped event
+RUNNING --> ERROR : unexpected exit
+
+STOPPED --> RUNNING : continue() / next() / step()
+STOPPED --> IDLE : stop() / kill()
+
+ERROR --> IDLE : stop()
+
+@enduml

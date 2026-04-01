@@ -28,6 +28,7 @@
 #include "app/SWC_Diagnostic.h"
 #include "app/SWC_Communication.h"
 #include <stdio.h>
+#include <unistd.h>
 
 int main(void) {
     uint32 iteration = 0u;
@@ -108,6 +109,7 @@ int main(void) {
         Wdg_Trigger();
 
         iteration++;
+        usleep(1000); /* 1ms delay per iteration */
     }
 
     /* ========================================

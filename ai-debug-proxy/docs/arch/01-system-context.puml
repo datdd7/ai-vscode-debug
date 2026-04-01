@@ -1,0 +1,17 @@
+@startuml System Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title System Context Diagram - AI Debug Proxy v3.0
+
+Person(user, "Developer", "Uses VSCode to debug applications")
+System(vscode_ext, "AI Debug Proxy Extension", "VSCode extension providing AI-assisted debugging")
+System_Ext(gdb, "GDB/MI", "GNU Debugger with Machine Interface")
+System_Ext(mcp_client, "MCP Client (Cline/Roo)", "AI Agent using MCP tools to debug")
+
+Rel(user, vscode_ext, "Interacts with UI", "VSCode UI")
+Rel(vscode_ext, gdb, "Sends MI commands", "Spawn/Pipe")
+Rel(mcp_client, vscode_ext, "Calls debug tools", "MCP Protocol")
+
+@enduml

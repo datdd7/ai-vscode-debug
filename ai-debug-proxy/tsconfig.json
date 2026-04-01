@@ -14,14 +14,15 @@
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "declaration": true,
-        "declarationMap": true
+        "declarationMap": true,
+        "types": ["vitest/globals", "node"]
     },
     "exclude": [
         "node_modules",
         "out",
-        "test",
-        "tests",
-        "playwright.config.ts",
-        "vitest.config.pact.ts"
+        "src/test/suite/**"
+    ],
+    "include": [
+        "src/**/*"
     ]
 }
