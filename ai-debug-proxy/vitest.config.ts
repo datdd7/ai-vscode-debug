@@ -30,8 +30,10 @@ export default defineConfig({
         'src/test/**',
       ],
       thresholds: {
-        statements: 97,
-        lines: 97,
+        statements: 100,
+        lines: 100,
+        branches: 100,
+        functions: 100,
       },
     },
   },
