@@ -1,47 +1,50 @@
-# AI VSCode Debug - AI-First Debugging Platform
+# AI VSCode Debug — AI-First Debugging Platform
 
-**Version:** 1.0.0
-**License:** MIT
+**Version:** 3.0.0  
+**License:** MIT  
 **Status:** Stable Release
 
-[![Quality Check](https://github.com/datdang-dev/ai-vscode-debug/actions/workflows/quality-check.yml/badge.svg)](https://github.com/datdang-dev/ai-vscode-debug/actions/workflows/quality-check.yml)
+[![CI](https://github.com/datdang-dev/ai-vscode-debug/actions/workflows/ci.yml/badge.svg)](https://github.com/datdang-dev/ai-vscode-debug/actions/workflows/ci.yml)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-blue)](https://marketplace.visualstudio.com/items?itemName=ai-debug-proxy)
 [![API Status](https://img.shields.io/badge/API-Stable-green)](docs/guides/api-reference.md)
 [![AI Ready](https://img.shields.io/badge/AI-Ready-purple)](docs/guides/ai-agent-technical-guide.md)
 
 ---
 
-## 🎯 Overview
+## Overview
 
-**AI VSCode Debug** is an **AI-First debugging platform** that enables LLM agents (Claude Code, Cursor, Cline, etc.) to control VS Code debugging programmatically via HTTP REST APIs.
+**AI VSCode Debug** is an **AI-First debugging platform** that enables LLM agents (Claude Code, Cursor, Cline, etc.) to control a GDB debugger programmatically via HTTP REST APIs — without requiring a human at the keyboard.
 
 Unlike traditional debuggers designed for human interaction, this platform is specifically architected for **autonomous AI debugging workflows**.
 
 ### Key Features
 
-- 🤖 **AI-Native API**: RESTful HTTP interface designed for LLM agent consumption
-- 🔌 **VS Code Integration**: Full DAP (Debug Adapter Protocol) support
-- 📡 **Remote Debugging**: Debug WSL2, remote containers, embedded targets
-- 🔄 **Batch Operations**: Execute multiple debug operations in parallel
-- 🧠 **LSP Code Intelligence**: Symbol search, references, call hierarchy
-- 🛡️ **Security**: User approval for destructive operations
-- 📊 **Subagent Orchestration**: Spawn concurrent CLI tasks
+- **AI-Native REST API** — 38 debug operations over HTTP, JSON in/out, stateless calls
+- **GDB/MI2 backend** — direct GDB integration via MI2 protocol, no VS Code DAP dependency
+- **MCP Server** — exposes all 38 operations as MCP tools for Claude, LangChain, and other AI frameworks
+- **VS Code integration** — full DAP support for use within VS Code debugger UI
+- **Shell CLI** — `ai-debug.sh` helper library for shell-based AI agents
+- **Security** — path sanitization, memory read limits, CORS restriction to localhost
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Install Extension
+### 1. Install the VS Code Extension
 
 ```bash
-# Download and install .vsix
-code --install-extension ai-debug-proxy-0.1.2.vsix --force
+# Build from source
+cd ai-debug-proxy
+npm install
+npm run compile
+npm run package
+code --install-extension ai-debug-proxy-3.0.0.vsix --force
 
 # Reload VS Code window
 # Command Palette → Developer: Reload Window
 ```
 
-### 2. Verify Proxy is Running
+### 2. Verify the Proxy is Running
 
 ```bash
 curl http://localhost:9999/api/ping
@@ -54,13 +57,14 @@ Expected response:
   "success": true,
   "data": {
     "message": "pong",
-    "version": "0.1.2-beta",
+    "version": "3.0.0",
+    "operationCount": 38,
     "operations": ["launch", "continue", "next", "step_in", ...]
   }
 }
 ```
 
-### 3. Launch Debug Session
+### 3. Launch a Debug Session
 
 ```bash
 curl -X POST http://localhost:9999/api/debug \
@@ -81,240 +85,184 @@ curl -X POST http://localhost:9999/api/debug \
 ```python
 import requests
 
+BASE = "http://localhost:9999/api/debug"
+
 # Launch
-requests.post("http://localhost:9999/api/debug", json={
-    "operation": "launch",
-    "params": {"program": "./build/app", "stopOnEntry": True}
-})
+requests.post(BASE, json={"operation": "launch",
+    "params": {"program": "./build/app", "stopOnEntry": True}})
 
 # Set breakpoint
-requests.post("http://localhost:9999/api/debug", json={
-    "operation": "set_breakpoint",
-    "params": {"location": {"path": "main.c", "line": 42}}
-})
+requests.post(BASE, json={"operation": "set_breakpoint",
+    "params": {"location": {"path": "main.c", "line": 42}}})
 
-# Continue
-requests.post("http://localhost:9999/api/debug", json={
-    "operation": "continue"
-})
+# Continue to breakpoint
+requests.post(BASE, json={"operation": "continue"})
 
 # Inspect state
-stack = requests.post("http://localhost:9999/api/debug", json={
-    "operation": "stack_trace"
-}).json()
+stack = requests.post(BASE, json={"operation": "stack_trace"}).json()
+variables = requests.post(BASE, json={"operation": "get_variables"}).json()
 
-# Evaluate
-result = requests.post("http://localhost:9999/api/debug", json={
-    "operation": "evaluate",
-    "params": {"expression": "my_variable"}
-}).json()
+# Evaluate expression
+result = requests.post(BASE, json={"operation": "evaluate",
+    "params": {"expression": "my_struct->field"}}).json()
 ```
 
-**CLI:**
+**Shell CLI:**
 
 ```bash
-# Source the helper library
 source ai-debug-proxy/resources/ai-debug.sh
 
-# Debug commands
-ai_launch "./build/app"
-ai_bp "main.c" 42
-ai_continue
-ai_stack
-ai_eval "my_variable"
-ai_quit
+ai_launch "./build/app"        # Start session, stop at entry
+ai_bp "main.c" 42              # Set breakpoint
+ai_continue                    # Resume
+ai_stack                       # Print call stack
+ai_vars                        # Print local variables
+ai_eval "my_variable"          # Evaluate expression
+ai_quit                        # End session
 ```
+
+**MCP Server (Claude, LangChain, etc.):**
+
+```bash
+cd mcp-debug-server
+pip install -r requirements.txt
+python debug_mcp.py            # Starts MCP server on stdio
+```
+
+Configure in Claude Code or any MCP-compatible client — all 38 operations are available as MCP tools.
 
 ---
 
-## 📚 Documentation
+## Architecture
 
-### For AI Agents
-
-| Document | Description |
-|----------|-------------|
-| **[AI Agent Technical Guide](docs/guides/ai-agent-technical-guide.md)** | Complete API reference for LLM agents |
-| **[CLI Debug Guide](docs/guides/cli-debug-guide.md)** | Shell scripts and CLI workflows |
-| **[API Reference](docs/guides/api-reference.md)** | All 33 HTTP endpoints |
-| **[Prompt Templates](docs/ai/prompt-templates.md)** | Pre-built prompts for debugging tasks |
-
-### For Developers
-
-| Document | Description |
-|----------|-------------|
-| **[Getting Started](docs/guides/getting-started.md)** | Installation and first debug session |
-| **[Architecture](docs/arch/architecture.md)** | System design and module documentation |
-| **[Troubleshooting](docs/guides/troubleshooting.md)** | Common issues and solutions |
-| **[WSL2 Setup](docs/guides/wsl2-setup.md)** | WSL2 debugging configuration |
-| **[Contributing](docs/contributing.md)** | How to contribute to the project |
-| **[Coding Guidelines](docs/guidelines/CODING_GUIDELINES.md)** | Coding standards |
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐
-│   AI Agent      │
-│   (LLM/CLI)     │
-└────────┬────────┘
-         │ HTTP REST
-         │ localhost:9999
-         ▼
-┌─────────────────────────────────┐
-│  AI Debug Proxy (VS Code Ext)   │
-│  ┌───────────────────────────┐  │
-│  │  HTTP Server              │  │
-│  │  - Router                 │  │
-│  │  - Validation             │  │
-│  └───────────┬───────────────┘  │
-│              │                   │
-│  ┌───────────▼───────────────┐  │
-│  │  DebugController          │  │
-│  │  - 33 Debug Operations    │  │
-│  │  - Session Management     │  │
-│  │  - Breakpoint Tracking    │  │
-│  └───────────┬───────────────┘  │
-│              │ DAP              │
-└──────────────┼──────────────────┘
-               │
+```text
+┌─────────────────────────────┐
+│  AI Agent / LLM / MCP Tool  │
+└──────────────┬──────────────┘
+               │ HTTP REST (localhost:9999)
                ▼
-      ┌────────────────┐
-      │  GDB/LLDB      │
-      │  Debugger      │
-      └────────────────┘
+┌──────────────────────────────────────────┐
+│  ai-debug-proxy  (VS Code Extension)     │
+│                                          │
+│  HttpServer → Router → Validation        │
+│                   │                      │
+│              BackendManager              │
+│                   │                      │
+│             GDBBackend (MI2)             │
+└──────────────────┬───────────────────────┘
+                   │ GDB/MI2 protocol
+                   ▼
+            ┌──────────────┐
+            │  GDB process │
+            └──────────────┘
 ```
 
 ### Components
 
 | Component | Description |
-|-----------|-------------|
-| **ai-debug-proxy** | VS Code extension exposing DAP via HTTP |
-| **playground** | AUTOSAR-style C project with 10 intentional bugs |
-| **ai-debug.sh** | CLI helper library for shell-based debugging |
+| --- | --- |
+| `ai-debug-proxy/` | VS Code extension — HTTP server + GDB/MI2 backend |
+| `mcp-debug-server/` | Python MCP server exposing all 38 ops as MCP tools |
+| `playground/` | AUTOSAR-style C project with 10 intentional bugs for AI training |
+| `infrastructure/dashboard/` | CI/CD status dashboard (Vite + TypeScript) |
 
 ---
 
-## 🔧 Supported Debug Operations
+## Supported Operations (38)
 
-### Session Management
-
-- `launch` - Start debug session
-- `restart` - Restart session
-- `quit` - Terminate session
-
-### Execution Control
-
-- `continue` - Resume execution
-- `next` - Step over
-- `step_in` - Step into
-- `step_out` - Step out
-- `jump` - Jump to line
-- `until` - Run until line
-
-### Breakpoints
-
-- `set_breakpoint` - Set persistent breakpoint
-- `set_temp_breakpoint` - Set temporary breakpoint
-- `remove_breakpoint` - Remove breakpoint
-- `set_breakpoint_condition` - Set condition
-- `ignore_breakpoint` - Set ignore count
-- `get_active_breakpoints` - List breakpoints
-
-### Inspection
-
-- `stack_trace` - Get call stack
-- `list_source` - Show source code
-- `evaluate` - Evaluate expression
-- `pretty_print` - Pretty-print complex types
-- `whatis` - Get type information
-- `get_stack_frame_variables` - Get variables
-
-### Advanced
-
-- `list_threads` - List all threads
-- `switch_thread` - Switch to thread
-- `get_registers` - Get CPU registers
-- `read_memory` - Read memory
-- `disassemble` - Disassemble code
-- `get_last_stop_info` - Get last stop event
-
-### Code Intelligence (LSP)
-
-- `GET /api/symbols` - Document symbols
-- `GET /api/references` - Find references
-- `GET /api/call-hierarchy` - Call hierarchy
-
-### Subagents
-
-- `POST /api/subagents` - Spawn concurrent CLI tasks
+| Group | Operations |
+| --- | --- |
+| Session | `launch` `attach` `terminate` `restart` `start` |
+| Execution | `continue` `next` `step_in` `step_out` `pause` `jump` `until` |
+| Frame | `up` `down` `goto_frame` |
+| Breakpoints | `set_breakpoint` `set_temp_breakpoint` `remove_breakpoint` `remove_all_breakpoints_in_file` `get_active_breakpoints` |
+| Inspection | `stack_trace` `get_variables` `get_arguments` `get_globals` `evaluate` `pretty_print` `whatis` `execute_statement` `list_all_locals` `get_scope_preview` `list_source` `get_source` |
+| Hardware | `get_registers` `read_memory` `write_memory` |
+| Threading | `list_threads` `switch_thread` |
+| Info | `get_last_stop_info` `get_capabilities` |
 
 ---
 
-## 🎯 AI-First Design Patterns
+## Documentation
 
-### 1. Operation Map Pattern
+### For New Users
 
-All 33 debug operations are registered in a discoverable map:
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/guides/getting-started.md) | Installation and first debug session |
+| [CLI Debug Guide](docs/guides/cli-debug-guide.md) | Shell CLI reference (`ai-debug.sh`) |
+| [WSL2 Setup](docs/guides/wsl2-setup.md) | WSL2-specific configuration |
+| [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |
 
-```json
-GET /api/ping
-{
-  "operations": [
-    "launch", "continue", "next", "step_in", "step_out",
-    "set_breakpoint", "set_temp_breakpoint", "remove_breakpoint",
-    "stack_trace", "evaluate", "get_stack_frame_variables",
-    ...
-  ]
-}
-```
+### For AI Agent Developers
 
-### 2. Event Caching
+| Document | Description |
+|----------|-------------|
+| [AI Agent Technical Guide](docs/guides/ai-agent-technical-guide.md) | Complete integration guide for LLMs |
+| [API Reference](docs/guides/api-reference.md) | All 38 HTTP endpoints with examples |
+| [Prompt Templates](docs/ai/prompt-templates.md) | Pre-built prompts for debugging tasks |
+| [LLM Integration Examples](docs/ai/llm-integration-examples.md) | Code examples for major AI frameworks |
 
-Stop events are cached for on-demand inspection:
+### Architecture & Development
 
-```python
-# AI agent can query last stop at any time
-response = requests.post(BASE_URL + "/api/debug", json={
-    "operation": "get_last_stop_info"
-})
-```
-
-### 3. Batch Operations
-
-Execute multiple operations efficiently:
-
-```python
-requests.post(BASE_URL + "/api/debug/batch", json={
-    "operations": [
-        {"operation": "set_breakpoint", "params": {...}},
-        {"operation": "set_breakpoint", "params": {...}},
-        {"operation": "continue"}
-    ],
-    "parallel": False
-})
-```
-
-### 4. Session Continuity
-
-`_lastSession` pattern handles VS Code session lifecycle gaps automatically.
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/arch/01-architecture.md) | System design, layers, and decisions |
+| [Coding Guidelines](docs/guidelines/CODING_GUIDELINES.md) | Coding standards and conventions |
+| [Changelog](ai-debug-proxy/CHANGELOG.md) | Version history |
 
 ---
 
-## 🧪 Training with Playground
+## Development
 
-The `playground` project contains 10 intentional bugs for AI debugging training:
+### Build from Source
+
+```bash
+cd ai-debug-proxy
+npm install
+npm run lint          # TypeScript type check
+npm test              # Unit tests (541 tests, 100% coverage)
+npm run compile       # Bundle with esbuild → out/extension.js
+npm run package       # Package → ai-debug-proxy-3.0.0.vsix
+```
+
+### Run Tests
+
+```bash
+cd ai-debug-proxy
+npm test                # Unit tests (vitest)
+npm run test:coverage   # With coverage report
+npm run test:e2e        # E2E tests (requires VS Code + GDB)
+```
+
+E2E results (v3.0.0 stable): **72/73 PASS** — see [test execution report](docs/release/v3/e2e-test-execution-report-stable-v1.md).
+
+---
+
+## Requirements
+
+| Component | Version |
+|-----------|---------|
+| VS Code | 1.88+ |
+| Node.js | 18+ |
+| GDB | 9+ (Linux/macOS) |
+| Python | 3.11+ (MCP server only) |
+| OS | Linux, macOS, Windows (WSL2 supported) |
+
+---
+
+## Training with Playground
+
+The `playground/` project contains 10 intentional bugs for AI debugging training:
 
 ```bash
 cd playground
 make clean && make    # Build with debug symbols
 
-# Launch debug session
+# Launch debug session against the playground binary
 curl -X POST http://localhost:9999/api/debug \
   -d '{"operation":"launch","params":{"program":"'"$(pwd)"'/build/cooling_ecu","stopOnEntry":true}}'
 ```
-
-### Bug Categories
 
 | Bug | Category | File |
 |-----|----------|------|
@@ -333,178 +281,15 @@ See [Debugging Guide](docs/guides/debugging-guide.md) for detailed scenarios.
 
 ---
 
-## 🔒 Security Model
+## License
 
-### User Approval Required
-
-The following operations trigger user confirmation dialogs:
-
-- `evaluate` with assignment operators (`=` but not `==`)
-- `execute_statement` - Execute arbitrary debug statements
-- `POST /api/subagents` - Spawn external processes
-
-### Safe Expression Patterns
-
-```python
-# ✅ Safe (no approval needed)
-evaluate("x + y")
-evaluate("array[i]")
-evaluate("struct.field")
-evaluate("x == 5")  # Comparison, not assignment
-
-# ⚠️ Requires approval
-evaluate("x = 5")   # Assignment
-evaluate("x++")     # Modification
-execute_statement("x = 10")
-```
+MIT License — see LICENSE file for details.
 
 ---
 
-## 🧰 Integration Examples
-
-### Claude Code
-
-```bash
-# Add to ~/.claude/commands/debug.sh
-#!/bin/bash
-curl -s -X POST "http://localhost:9999/api/debug" \
-  -H "Content-Type: application/json" \
-  -d "$1" | jq .
-```
-
-### Cursor IDE
-
-```json
-// .cursor/rules/debugging.json
-{
-  "rules": [{
-    "name": "debug-session",
-    "pattern": "debug.*",
-    "command": "curl -s http://localhost:9999/api/debug ..."
-  }]
-}
-```
-
-### Custom AI Agent
-
-```python
-class AIDebugAgent:
-    def __init__(self, base_url="http://localhost:9999"):
-        self.base_url = base_url
-    
-    def debug_loop(self, binary_path, suspected_bugs):
-        # Launch
-        self.launch(binary_path)
-        
-        # Set breakpoints
-        for bug in suspected_bugs:
-            self.set_breakpoint(bug["file"], bug["line"])
-        
-        # Iterative investigation
-        while True:
-            result = self.continue_exec()
-            if result["stopReason"] == "exit":
-                break
-            
-            state = self.inspect_state()
-            analysis = self.llm_analyze(state)
-            
-            if analysis.confidence > 0.9:
-                return analysis
-            
-            # Set new breakpoints based on analysis
-            for loc in analysis.suspected_locations:
-                self.set_breakpoint(loc["file"], loc["line"])
-```
-
----
-
-- **Execution Control** (6 tests)
-- **State Inspection** (8 tests)
-- **Edge Cases** (4 tests)
-
----
-
-## 🛠️ Development
-
-### Build from Source
-
-```bash
-cd ai-debug-proxy
-npm install
-npm run compile
-npm run package    # Creates .vsix file
-```
-
-### Run Tests
-
-```bash
-# Unit tests
-npm test
-
-# E2E tests
-npm run test:e2e
-
-# Type checking
-npm run lint
-```
-
-### Debug the Extension
-
-```bash
-# Open in VS Code
-code .
-
-# Press F5 to launch Extension Development Host
-# Test in the new VS Code window
-```
-
----
-
-## 📋 Requirements
-
-| Component | Version |
-|-----------|---------|
-| VS Code | 1.85+ |
-| Node.js | 18+ |
-| TypeScript | 5.3+ |
-| Debugger | cppdbg (C/C++ Extension) |
-| OS | Linux, macOS, Windows (WSL2 supported) |
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! See [Contributing Guide](docs/contributing.md) for:
-
-- Development setup
-- Coding standards
-- Documentation requirements
-- Pull request process
-- Code review guidelines
-
----
-
-## 📝 License
-
-MIT License - See LICENSE file for details.
-
----
-
-## 🔗 Related Projects
+## Links
 
 - [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/)
-- [VS Code Debugging](https://code.visualstudio.com/docs/editor/debugging)
-- [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-
----
-
-## 📞 Support
-
-- **Documentation:** [docs/](docs/index.md)
-- **Issues:** [GitHub Issues](https://github.com/datdang-dev/ai-vscode-debug/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/datdang-dev/ai-vscode-debug/discussions)
-
----
-
-*Built with ❤️ for AI-powered debugging*
+- [GDB/MI Interface](https://sourceware.org/gdb/current/onlinedocs/gdb/GDB_002fMI.html)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
+- [Issues](https://github.com/datdang-dev/ai-vscode-debug/issues)

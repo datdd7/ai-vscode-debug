@@ -315,12 +315,15 @@ describe('Router - PI3 Operations', () => {
 
     describe('Breakpoint Operations', () => {
         it('routes "remove_breakpoint" to backend.removeBreakpoint()', async () => {
+            mockBackend.getBreakpoints.mockResolvedValue([
+                { id: '5', verified: true, line: 10, file: '/proj/main.c' }
+            ]);
             mockBackend.removeBreakpoint.mockResolvedValue(undefined);
             const result = await handleRequest('POST', '/api/debug', {
                 operation: 'remove_breakpoint', params: { location: { path: 'main.c', line: 10 } }
             }, {} as any);
             expect(result.statusCode).toBe(200);
-            expect(mockBackend.removeBreakpoint).toHaveBeenCalled();
+            expect(mockBackend.removeBreakpoint).toHaveBeenCalledWith('5');
         });
 
         it('routes "get_active_breakpoints" to backend.getBreakpoints()', async () => {
@@ -464,6 +467,16 @@ describe('Router - PI3 Operations', () => {
             }, {} as any);
             expect(result.statusCode).toBe(200);
             expect(mockBackend.getCapabilities).toHaveBeenCalled();
+        });
+
+        it('get_capabilities returns static fallback when no backend active', async () => {
+            // Override spy once — no backend session active
+            vi.spyOn(backendManager, 'getCurrentBackend').mockReturnValueOnce(undefined as any);
+            const result = await handleRequest('POST', '/api/debug', {
+                operation: 'get_capabilities'
+            }, {} as any);
+            expect(result.statusCode).toBe(200);
+            expect(result.body.data).toHaveProperty('supportsLaunch', true);
         });
 
         it('routes "terminate" to backend.terminate()', async () => {
@@ -623,6 +636,20 @@ describe('Router - PI3 Operations', () => {
             }, {} as any);
             expect(result.statusCode).toBe(200);
             expect(mockBackend.getSource).toHaveBeenCalledWith('/src/main.c');
+        });
+
+        it('sanitizes paths in get_source response (ADP-024)', async () => {
+            // Real GDB returns "Compilation directory is /home/user/project"
+            mockBackend.getSource.mockResolvedValue(
+                'Current source file is main.c\nCompilation directory is /home/user/project\nLocated in /home/user/project/main.c'
+            );
+            const result = await handleRequest('POST', '/api/debug', {
+                operation: 'get_source',
+                params: { expression: 'main.c' }
+            }, {} as any);
+            expect(result.statusCode).toBe(200);
+            expect(result.body.data).not.toContain('/home/user');
+            expect(result.body.data).toContain('[path]');
         });
     });
 });

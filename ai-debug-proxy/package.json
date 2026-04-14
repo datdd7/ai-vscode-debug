@@ -2,7 +2,7 @@
     "name": "ai-debug-proxy",
     "displayName": "AI Debug Proxy",
     "description": "HTTP proxy exposing VS Code DAP operations as a REST API for AI agents",
-    "version": "3.0.0-alpha.1",
+    "version": "3.0.0",
     "publisher": "datdang",
     "repository": {
         "type": "git",
@@ -23,7 +23,7 @@
         "debuggers": [
             {
                 "type": "ai-debug",
-                "label": "AI Debug Proxy v3.a1",
+                "label": "AI Debug Proxy v3.0.0",
                 "configurationSnippets": [
                     {
                         "label": "AI Debug: Launch Program",
@@ -103,7 +103,8 @@
         "test": "vitest run",
         "test:watch": "vitest --watch",
         "test:coverage": "vitest run --coverage",
-        "test:e2e": "node ./out/test/runTest.js"
+        "test:e2e": "xvfb-run -a node ./out/test/runTest.js",
+        "test:e2e:gui": "node ./out/test/runTest.js"
     },
     "devDependencies": {
         "@types/glob": "^8.1.0",

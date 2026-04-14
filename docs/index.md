@@ -1,7 +1,7 @@
 # AI Debug Proxy — Documentation Index
 
-**Version:** 3.0.0-b1
-**Date:** 2026-03-30
+**Version:** 3.0.0
+**Date:** 2026-04-14
 **Project:** ai-vscode-debug
 
 ---
@@ -49,7 +49,7 @@ This repository provides tools for AI agents to control VS Code debugging progra
 ```bash
 # 1. Build and install extension
 cd ai-debug-proxy && npm run compile && npm run package
-code --install-extension ai-debug-proxy-3.0.0-b1.vsix
+code --install-extension ai-debug-proxy-3.0.0.vsix
 
 # 2. Verify proxy is running
 curl http://localhost:9999/api/ping

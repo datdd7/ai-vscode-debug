@@ -1002,7 +1002,7 @@ var require_internalLogger = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InternalLogger = void 0;
-    var fs5 = require("fs");
+    var fs4 = require("fs");
     var path3 = require("path");
     var logger_1 = require_logger();
     var InternalLogger = class {
@@ -1028,11 +1028,11 @@ var require_internalLogger = __commonJS({
             const handleError = (err) => this.sendLog(`Error creating log file at path: ${options.logFilePath}. Error: ${err.toString()}
 `, logger_1.LogLevel.Error);
             try {
-              await fs5.promises.mkdir(path3.dirname(options.logFilePath), { recursive: true });
+              await fs4.promises.mkdir(path3.dirname(options.logFilePath), { recursive: true });
               this.log(`Verbose logs are written to:
 `, logger_1.LogLevel.Warn);
               this.log(options.logFilePath + "\n", logger_1.LogLevel.Warn);
-              this._logFileStream = fs5.createWriteStream(options.logFilePath);
+              this._logFileStream = fs4.createWriteStream(options.logFilePath);
               this.logDateTime();
               this.setupShutdownListeners();
               this._logFileStream.on("error", (err) => {
@@ -1428,7 +1428,7 @@ module.exports = __toCommonJS(extension_exports);
 var vscode2 = __toESM(require("vscode"));
 var path2 = __toESM(require("path"));
 var os = __toESM(require("os"));
-var fs4 = __toESM(require("fs"));
+var fs3 = __toESM(require("fs"));
 
 // src/server/HttpServer.ts
 var http = __toESM(require("http"));
@@ -1445,23 +1445,27 @@ var LOG_LEVELS = {
 };
 var currentLevel = "info";
 var LOG_FILE = path.join(__dirname, "..", "proxy.log");
-var outputChannel = typeof vscode.window?.createOutputChannel === "function" ? vscode.window.createOutputChannel("AI Debug Proxy") : {
-  append: () => {
-  },
-  appendLine: () => {
-  },
-  clear: () => {
-  },
-  dispose: () => {
-  },
-  hide: () => {
-  },
-  name: "MockOutputChannel",
-  replace: () => {
-  },
-  show: () => {
+var outputChannel = (
+  /* $REQ REQ-LOG-001 */
+  /* v8 ignore next 2 -- false branch only when vscode.window unavailable (non-extension context) */
+  typeof vscode.window?.createOutputChannel === "function" ? vscode.window.createOutputChannel("AI Debug Proxy") : {
+    append: () => {
+    },
+    appendLine: () => {
+    },
+    clear: () => {
+    },
+    dispose: () => {
+    },
+    hide: () => {
+    },
+    name: "MockOutputChannel",
+    replace: () => {
+    },
+    show: () => {
+    }
   }
-};
+);
 function setLogLevel(level) {
   currentLevel = level;
 }
@@ -1520,7 +1524,127 @@ function stringifySafe(obj, indent = 2) {
 
 // src/backend/GDBBackend.ts
 var import_events2 = require("events");
-var fs2 = __toESM(require("fs"));
+
+// src/utils/errors.ts
+var DebugError = class _DebugError extends Error {
+  /* $REQ REQ-ERR-001 */
+  /**
+   * @brief Create a DebugError.
+   *
+   * @param [in] code       Machine-readable error code.
+   * @param [in] message    Human-readable error message.
+   * @param [in] suggestion Optional suggestion for resolving the error.
+   * @param [in] details    Optional additional context/details.
+   */
+  constructor(code, message, suggestion, details) {
+    super(message);
+    this.code = code;
+    this.suggestion = suggestion;
+    this.details = details;
+    this.name = "DebugError";
+    Object.setPrototypeOf(this, _DebugError.prototype);
+    Error.captureStackTrace(this, this.constructor);
+  }
+  /**
+   * @brief Convert error to JSON for API response.
+   *
+   * @return JSON-serializable error object.
+   */
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      suggestion: this.suggestion,
+      details: this.details
+    };
+  }
+  /**
+   * @brief Create a BINARY_NOT_FOUND error.
+   *
+   * @param [in] path Path to the missing binary.
+   * @return DebugError instance.
+   */
+  static binaryNotFound(path3) {
+    return new _DebugError(
+      "BINARY_NOT_FOUND" /* BINARY_NOT_FOUND */,
+      `Binary not found: ${path3}`,
+      `Have you built the project? Check your build configuration and output path.`,
+      { path: path3, exists: false }
+    );
+  }
+  /**
+   * @brief Create a GDB_NOT_FOUND error.
+   *
+   * @param [in] path Path to the missing GDB executable.
+   * @return DebugError instance.
+   */
+  static gdbNotFound(path3) {
+    return new _DebugError(
+      "GDB_NOT_FOUND" /* GDB_NOT_FOUND */,
+      `GDB debugger not found: ${path3}`,
+      `Install GDB: sudo apt-get install gdb (or configure miDebuggerPath correctly)`,
+      { path: path3, exists: false }
+    );
+  }
+  /**
+   * @brief Create a WORKSPACE_NOT_FOUND error.
+   *
+   * @param [in] path Path to the missing workspace.
+   * @return DebugError instance.
+   */
+  static workspaceNotFound(path3) {
+    return new _DebugError(
+      "WORKSPACE_NOT_FOUND" /* WORKSPACE_NOT_FOUND */,
+      `Workspace not found: ${path3}`,
+      `Ensure the workspace path is correct and the folder is open in VS Code.`,
+      { path: path3, exists: false }
+    );
+  }
+  /**
+   * @brief Create a MISSING_PARAMETER error.
+   *
+   * @param [in] paramName Name of the missing parameter.
+   * @return DebugError instance.
+   */
+  static missingParameter(paramName) {
+    return new _DebugError(
+      "MISSING_PARAMETER" /* MISSING_PARAMETER */,
+      `Missing required parameter: ${paramName}`,
+      `Add '${paramName}' field to params object.`,
+      { missingField: paramName }
+    );
+  }
+  /**
+   * @brief Create an INVALID_PARAMETER error.
+   *
+   * @param [in] paramName Name of the invalid parameter.
+   * @param [in] reason    Reason why the parameter is invalid.
+   * @return DebugError instance.
+   */
+  static invalidParameter(paramName, reason) {
+    return new _DebugError(
+      "INVALID_PARAMETER" /* INVALID_PARAMETER */,
+      `Invalid parameter '${paramName}': ${reason}`,
+      `Check the parameter value and try again.`,
+      { paramName, reason }
+    );
+  }
+  /**
+   * @brief Create an INTERNAL_ERROR.
+   *
+   * @param [in] message Error message.
+   * @param [in] details Optional additional details.
+   * @return DebugError instance.
+   */
+  static internal(message, details) {
+    return new _DebugError(
+      "INTERNAL_ERROR" /* INTERNAL_ERROR */,
+      `Internal error: ${message}`,
+      `This is likely a bug in the extension. Please check the logs.`,
+      details
+    );
+  }
+};
 
 // src/protocol/mi2/MI2.ts
 var import_child_process = require("child_process");
@@ -1848,12 +1972,16 @@ var MI2 = class extends import_events.EventEmitter {
   token = 1;
   pendingCommands = /* @__PURE__ */ new Map();
   running = false;
+  // ADP-009: serialize commands — each call waits for the previous to settle
+  lastCommand = Promise.resolve();
   /**
-   * Start GDB process
+   * Start GDB process.
+   * ADP-004: Resolves only after the first (gdb) prompt is received,
+   * eliminating the 500ms race condition.
    */
   async start(cwd, initCommands = []) {
     return new Promise((resolve, reject) => {
-      console.log("[MI2] Starting GDB:", this.application);
+      logger.debug("MI2", "Starting GDB", { application: this.application });
       this.process = (0, import_child_process.spawn)(this.application, this.args, {
         cwd,
         env: { PATH: process.env.PATH }
@@ -1862,18 +1990,26 @@ var MI2 = class extends import_events.EventEmitter {
         this.handleOutput(data.toString());
       });
       this.process.stderr?.on("data", (data) => {
-        console.error("[MI2] GDB stderr:", data.toString());
+        logger.error("MI2", "GDB stderr", { data: data.toString() });
       });
       this.process.on("exit", (code) => {
-        console.log("[MI2] GDB exited with code:", code);
+        logger.debug("MI2", "GDB exited", { code });
         this.running = false;
         this.emit("exited", code);
+        for (const [, cb] of this.pendingCommands) {
+          cb.reject(new Error(`GDB exited with code: ${code}`));
+        }
+        this.pendingCommands.clear();
       });
       this.process.on("error", (err) => {
-        console.error("[MI2] GDB process error:", err);
+        logger.error("MI2", "GDB process error", { error: err.message });
         reject(err);
       });
-      setTimeout(async () => {
+      let readyHandled = false;
+      const onReady = async () => {
+        if (readyHandled)
+          return;
+        readyHandled = true;
         try {
           for (const cmd of initCommands) {
             await this.sendCommand(cmd);
@@ -1883,7 +2019,14 @@ var MI2 = class extends import_events.EventEmitter {
         } catch (error) {
           reject(error);
         }
-      }, 500);
+      };
+      this.once("ready", onReady);
+      setTimeout(() => {
+        if (!readyHandled) {
+          logger.warn("MI2", "(gdb) prompt not seen after 5s, proceeding anyway");
+          onReady();
+        }
+      }, 5e3);
     });
   }
   /**
@@ -1932,12 +2075,16 @@ var MI2 = class extends import_events.EventEmitter {
     for (const line of lines) {
       if (!line.trim())
         continue;
+      if (/^\(gdb\)\s*$/.test(line.trim())) {
+        this.emit("ready");
+        continue;
+      }
       const mi = parseMI(line);
       if (!mi)
         continue;
       if (mi.outOfBandRecord) {
         for (const record of mi.outOfBandRecord) {
-          if (record.isStream && record.type === "~") {
+          if (record.isStream && record.type === "console") {
             this.pendingConsoleOutput += record.content;
           }
         }
@@ -1968,12 +2115,15 @@ var MI2 = class extends import_events.EventEmitter {
               const event = {
                 reason: this.extractStringValue(record.output, "reason") || "unknown",
                 signalName: this.extractStringValue(record.output, "signal-name"),
+                /* v8 ignore next -- outer || 1 only if parseInt→NaN; GDB always sends numeric thread-id */
                 threadId: parseInt(this.extractStringValue(record.output, "thread-id") || "1") || 1,
                 frame: this.normalize(record.output.find((o) => o[0] === "frame")?.[1])
               };
               this.emit("stopped", event);
             } else if (record.asyncClass === "running") {
               this.emit("running");
+            } else if (record.asyncClass === "thread-group-exited") {
+              this.emit("exited", 0);
             }
           }
         }
@@ -1981,9 +2131,20 @@ var MI2 = class extends import_events.EventEmitter {
     }
   }
   /**
-   * Send command to GDB
+   * Send command to GDB.
+   * ADP-009: Serialized — each call waits for the previous to settle,
+   * preventing token mismatches from concurrent callers.
    */
   async sendCommand(cmd) {
+    const current = this.lastCommand.then(() => this.sendCommandRaw(cmd));
+    this.lastCommand = current.catch(() => {
+    });
+    return current;
+  }
+  /**
+   * Internal: send a single command without queuing.
+   */
+  sendCommandRaw(cmd) {
     return new Promise((resolve, reject) => {
       if (!this.process) {
         reject(new Error("GDB not started"));
@@ -1993,7 +2154,7 @@ var MI2 = class extends import_events.EventEmitter {
       this.pendingCommands.set(token, { resolve, reject });
       const line = `${token}${cmd}
 `;
-      console.log("[MI2] Sending:", line.trim());
+      logger.debug("MI2", "Sending", { command: line.trim() });
       this.process.stdin?.write(line);
       const timeoutMs = cmd.includes("-file-") ? 3e4 : 1e4;
       setTimeout(() => {
@@ -2030,7 +2191,6 @@ var MI2 = class extends import_events.EventEmitter {
 };
 
 // src/backend/GDBBackend.ts
-var LOG_FILE2 = "/home/datdang/working/common_dev/ai_vscode_debug/proxy.log";
 var GDBBackend = class extends import_events2.EventEmitter {
   mi2;
   config;
@@ -2038,45 +2198,42 @@ var GDBBackend = class extends import_events2.EventEmitter {
   breakpoints = /* @__PURE__ */ new Map();
   currentFrame;
   lastStopEvent;
+  // ADP-002: tracks selected frame index for frameUp/frameDown navigation
+  currentFrameId = 0;
   /**
-   * Log helper
+   * ADP-021: Escape a file path for embedding in a GDB MI command string.
+   * Prevents command injection via crafted path names.
    */
-  log(message) {
-    const logMsg = `[GDBBackend][${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
-`;
-    console.log(logMsg.trim());
-    try {
-      fs2.appendFileSync(LOG_FILE2, logMsg);
-    } catch (e) {
-    }
+  escapePath(p) {
+    return p.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "");
   }
   /**
    * Initializes the GDB backend.
    * Starts the GDB process with MI2 interpreter and pretty-printing enabled.
-   * 
+   *
    * @param config - Backend configuration (gdbPath, etc.)
    */
   async initialize(config) {
-    this.log(`Initializing GDBBackend: ${JSON.stringify(config, null, 2)}`);
+    logger.debug("GDBBackend", `Initializing: ${JSON.stringify(config, null, 2)}`);
     this.config = config;
     this.mi2 = new MI2(config.gdbPath || "gdb", ["--interpreter=mi2"]);
     this.mi2.on("msg", (msg) => {
-      this.log(`[MI2 RAW] ${msg}`);
+      logger.debug("GDBBackend", `MI2 RAW: ${msg}`);
     });
     this.mi2.on("stopped", (event) => {
-      this.log(`[GDBBackend] Stopped event: ${event.reason}`);
+      logger.debug("GDBBackend", `Stopped event: ${event.reason}`);
       this.running = false;
       this.updateCurrentFrame(event);
       this.lastStopEvent = this.createStopEvent(event);
       this.emit("stopped", this.lastStopEvent);
     });
     this.mi2.on("running", () => {
-      this.log("[GDBBackend] Running event");
+      logger.debug("GDBBackend", "Running event");
       this.running = true;
       this.emit("running");
     });
     this.mi2.on("exited", (code) => {
-      this.log(`[GDBBackend] Exited with code: ${code}`);
+      logger.debug("GDBBackend", `Exited with code: ${code}`);
       this.running = false;
       this.emit("exited", code);
     });
@@ -2085,7 +2242,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
       "-gdb-set target-async on"
     ]);
     this.running = false;
-    this.log("GDBBackend initialized successfully");
+    logger.debug("GDBBackend", "Initialized successfully");
   }
   /**
    * Create StopEvent from MI2 event
@@ -2106,9 +2263,11 @@ var GDBBackend = class extends import_events2.EventEmitter {
     };
   }
   /**
-   * Update current frame from stop event
+   * Update current frame from stop event.
+   * ADP-002: resets currentFrameId to 0 (top frame) on every new stop.
    */
   updateCurrentFrame(event) {
+    this.currentFrameId = 0;
     if (event.frame) {
       this.currentFrame = {
         id: 0,
@@ -2125,16 +2284,23 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async launch(params) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    this.log(`Starting program: ${params.program}`);
-    await this.mi2.sendCommand(`-file-exec-and-symbols "${params.program}"`);
+    logger.debug("GDBBackend", `Starting program: ${params.program}`);
+    await this.mi2.sendCommand(`-file-exec-and-symbols "${this.escapePath(params.program)}"`);
     if (params.cwd) {
-      await this.mi2.sendCommand(`-environment-cd "${params.cwd}"`);
+      await this.mi2.sendCommand(`-environment-cd "${this.escapePath(params.cwd)}"`);
+    }
+    if (params.env) {
+      for (const [key, value] of Object.entries(params.env)) {
+        if (value !== null) {
+          await this.mi2.sendCommand(`-interpreter-exec console "set environment ${key}=${value}"`);
+        }
+      }
     }
     if (params.stopOnEntry) {
-      await this.mi2.sendCommand("-break-insert main");
-      console.log("[GDBBackend] Breakpoint set at main");
+      await this.mi2.sendCommand("-break-insert -f main");
+      logger.debug("GDBBackend", "Breakpoint set at main (pending)");
     }
-    this.log("Launch complete (deferred -exec-run)");
+    logger.debug("GDBBackend", "Launch complete (deferred -exec-run)");
   }
   /**
    * Start execution
@@ -2142,7 +2308,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async start() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Starting program execution");
+    logger.debug("GDBBackend", "Starting program execution");
     await this.mi2.sendCommand("-exec-run");
     this.running = true;
   }
@@ -2152,14 +2318,14 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async attach(params) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Attaching to PID:", params.processId);
+    logger.debug("GDBBackend", "Attaching to PID", { pid: params.processId });
     await this.mi2.sendCommand(`-target-attach ${params.processId}`);
   }
   /**
    * Terminate debug session
    */
   async terminate() {
-    console.log("[GDBBackend] Terminating session");
+    logger.debug("GDBBackend", "Terminating session");
     if (this.mi2) {
       this.mi2.sendCommand("-gdb-exit").catch(() => {
       });
@@ -2174,7 +2340,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
    * Check if debugger is running
    */
   isRunning() {
-    this.log(`isRunning() check: ${this.running}`);
+    logger.debug("GDBBackend", `isRunning() check: ${this.running}`);
     return this.running;
   }
   /**
@@ -2185,7 +2351,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async continue() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    this.log("[GDBBackend] Continuing execution - setting running=true");
+    logger.debug("GDBBackend", "Continuing execution - setting running=true");
     this.running = true;
     await this.mi2.sendCommand("-exec-continue");
   }
@@ -2197,7 +2363,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async stepOver() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Stepping over");
+    logger.debug("GDBBackend", "Stepping over");
     this.running = true;
     await this.mi2.sendCommand("-exec-next");
   }
@@ -2207,7 +2373,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async stepIn() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Stepping into");
+    logger.debug("GDBBackend", "Stepping into");
     this.running = true;
     await this.mi2.sendCommand("-exec-step");
   }
@@ -2217,7 +2383,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async stepOut() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Stepping out");
+    logger.debug("GDBBackend", "Stepping out");
     this.running = true;
     await this.mi2.sendCommand("-exec-finish");
   }
@@ -2227,7 +2393,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async pause() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Pausing execution");
+    logger.debug("GDBBackend", "Pausing execution");
     await this.mi2.sendCommand("-exec-interrupt");
   }
   /**
@@ -2236,7 +2402,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async jumpToLine(line, file) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    this.log(`Attempting jump to line ${line}${file ? ` in ${file}` : ""}`);
+    logger.debug("GDBBackend", `Attempting jump to line ${line}${file ? ` in ${file}` : ""}`);
     let targetFile = file;
     if (!targetFile) {
       const stack = await this.getStackTrace();
@@ -2248,9 +2414,10 @@ var GDBBackend = class extends import_events2.EventEmitter {
     if (!targetFile) {
       throw new Error("Cannot jump: No file path available");
     }
-    this.log(`Forcing temporary breakpoint at ${targetFile}:${line} for jump safety`);
-    await this.mi2.sendCommand(`-break-insert -t ${targetFile}:${line}`);
-    await this.mi2.sendCommand(`-exec-jump ${targetFile}:${line}`);
+    logger.debug("GDBBackend", `Forcing temporary breakpoint at ${targetFile}:${line} for jump safety`);
+    const ef = this.escapePath(targetFile);
+    await this.mi2.sendCommand(`-break-insert -t ${ef}:${line}`);
+    await this.mi2.sendCommand(`-exec-jump ${ef}:${line}`);
   }
   /**
    * Run until line (safe)
@@ -2258,7 +2425,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async runUntilLine(line, file) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    this.log(`Running until line ${line}${file ? ` in ${file}` : ""}`);
+    logger.debug("GDBBackend", `Running until line ${line}${file ? ` in ${file}` : ""}`);
     let targetFile = file;
     if (!targetFile) {
       const stack = await this.getStackTrace();
@@ -2270,32 +2437,48 @@ var GDBBackend = class extends import_events2.EventEmitter {
     if (!targetFile) {
       throw new Error("Cannot run until line: No file path available");
     }
-    await this.mi2.sendCommand(`-break-insert -t ${targetFile}:${line}`);
+    await this.mi2.sendCommand(`-break-insert -t ${this.escapePath(targetFile)}:${line}`);
     await this.mi2.sendCommand("-exec-continue");
   }
   /**
-   * Set breakpoint at location
+   * Set breakpoint at location.
+   * ADP-006: uses GDB-assigned number as the breakpoint ID (not Date.now()).
+   * ADP-007: reads verified status from GDB response instead of hardcoding true.
    */
   async setBreakpoint(location) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Setting breakpoint at", location);
-    const result = await this.mi2.sendCommand(`-break-insert ${location.path}:${location.line}`);
+    logger.debug("GDBBackend", "Setting breakpoint at", location);
+    const result = await this.mi2.sendCommand(
+      `-break-insert ${this.escapePath(location.path)}:${location.line}`
+    );
+    const bkpt = result.resultData?.bkpt;
+    const gdbNumber = bkpt?.number ? String(bkpt.number) : `tmp-${Date.now()}`;
+    const verified = bkpt?.enabled === "y";
+    const actualLine = bkpt?.line ? parseInt(bkpt.line) : location.line;
+    const actualFile = bkpt?.fullname || bkpt?.file || location.path;
     const bp = {
-      id: `bp-${Date.now()}`,
-      verified: true,
-      line: location.line,
-      file: location.path
+      id: gdbNumber,
+      // ADP-006: real GDB number, eliminates collision risk
+      verified,
+      // ADP-007: from GDB response
+      line: actualLine,
+      file: actualFile
     };
     this.breakpoints.set(bp.id, bp);
     return bp;
   }
   /**
-   * Remove breakpoint
+   * Remove breakpoint.
+   * ADP-001: sends -break-delete to GDB so the breakpoint is actually removed.
    */
   async removeBreakpoint(id) {
-    console.log("[GDBBackend] Removing breakpoint:", id);
-    this.breakpoints.delete(id);
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    const strId = String(id);
+    logger.debug("GDBBackend", "Removing breakpoint", { id: strId });
+    await this.mi2.sendCommand(`-break-delete ${strId}`);
+    this.breakpoints.delete(strId);
   }
   /**
    * Get all breakpoints
@@ -2309,9 +2492,10 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async getStackTrace(threadId) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Getting stack trace");
-    const result = await this.mi2.sendCommand("-stack-list-frames");
-    this.log(`stack-list-frames results: ${JSON.stringify(result.resultData, null, 2)}`);
+    logger.debug("GDBBackend", "Getting stack trace");
+    const cmd = threadId ? `-stack-list-frames --thread ${threadId}` : "-stack-list-frames";
+    const result = await this.mi2.sendCommand(cmd);
+    logger.debug("GDBBackend", `stack-list-frames results: ${JSON.stringify(result.resultData, null, 2)}`);
     if (!result.resultData || !result.resultData.stack) {
       return [];
     }
@@ -2329,12 +2513,12 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async getVariables(frameId) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Getting variables");
+    logger.debug("GDBBackend", "Getting variables");
     if (frameId !== void 0) {
       await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
     }
     const result = await this.mi2.sendCommand("-stack-list-locals 1");
-    this.log(`stack-list-locals results: ${JSON.stringify(result.resultData, null, 2)}`);
+    logger.debug("GDBBackend", `stack-list-locals results: ${JSON.stringify(result.resultData, null, 2)}`);
     if (!result.resultData || !result.resultData.locals) {
       return [];
     }
@@ -2351,15 +2535,17 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async getArguments(frameId) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Getting arguments");
-    if (frameId !== void 0) {
-      await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
-    }
-    const result = await this.mi2.sendCommand("-stack-list-arguments 1");
-    if (!result.resultData || !result.resultData.stackargs) {
+    logger.debug("GDBBackend", "Getting arguments");
+    const targetFrame = frameId ?? this.currentFrameId ?? 0;
+    await this.mi2.sendCommand(`-stack-select-frame ${targetFrame}`);
+    const result = await this.mi2.sendCommand(`-stack-list-arguments 1 ${targetFrame} ${targetFrame}`);
+    if (!result.resultData || !result.resultData["stack-args"]) {
       return [];
     }
-    return result.resultData.stackargs.map((arg) => ({
+    const frameArgs = result.resultData["stack-args"][0];
+    if (!frameArgs || !frameArgs.args)
+      return [];
+    return frameArgs.args.map((arg) => ({
       name: arg.name || "unknown",
       value: arg.value || "undefined",
       type: arg.type || "unknown",
@@ -2372,7 +2558,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async getGlobals() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Getting globals");
+    logger.debug("GDBBackend", "Getting globals");
     const consoleStr = await this.executeStatement("info variables");
     if (!consoleStr)
       return [];
@@ -2397,7 +2583,11 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async evaluate(expression, frameId) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Evaluating:", expression);
+    logger.debug("GDBBackend", "Evaluating", { expression });
+    const targetFrame = frameId ?? this.currentFrameId;
+    if (targetFrame !== void 0) {
+      await this.mi2.sendCommand(`-stack-select-frame ${targetFrame}`);
+    }
     const result = await this.mi2.sendCommand(`-data-evaluate-expression "${expression}"`);
     return {
       name: expression,
@@ -2413,7 +2603,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async getRegisters() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Getting registers");
+    logger.debug("GDBBackend", "Getting registers");
     const result = await this.mi2.sendCommand("-data-list-register-values x");
     if (!result.resultData || !result.resultData["register-values"]) {
       return [];
@@ -2426,12 +2616,16 @@ var GDBBackend = class extends import_events2.EventEmitter {
     }));
   }
   /**
-   * Read memory
+   * Read memory.
+   * ADP-022: enforces a 64KB maximum to prevent OOM via large length values.
    */
   async readMemory(address, length) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Reading memory at 0x" + address.toString(16));
+    if (length > 65536) {
+      throw new Error("Memory read length exceeds maximum (64KB)");
+    }
+    logger.debug("GDBBackend", `Reading memory at 0x${address.toString(16)}`);
     const result = await this.mi2.sendCommand(
       `-data-read-memory-bytes "0x${address.toString(16)}" ${length}`
     );
@@ -2449,7 +2643,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async writeMemory(address, data) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Writing memory at 0x" + address.toString(16));
+    logger.debug("GDBBackend", `Writing memory at 0x${address.toString(16)}`);
     const hex = data.toString("hex");
     await this.mi2.sendCommand(
       `-interpreter-exec console "set {char[${data.length}]} 0x${address.toString(16)} = 0x${hex}"`
@@ -2459,7 +2653,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
    * Get last stop information
    */
   async getLastStopInfo() {
-    console.log("[GDBBackend] Getting last stop info");
+    logger.debug("GDBBackend", "Getting last stop info");
     if (this.lastStopEvent) {
       return this.lastStopEvent;
     }
@@ -2472,6 +2666,41 @@ var GDBBackend = class extends import_events2.EventEmitter {
     };
   }
   /**
+   * List all threads in the debuggee.
+   */
+  async listThreads() {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    logger.debug("GDBBackend", "Listing threads");
+    const result = await this.mi2.sendCommand("-thread-info");
+    const threads = result.resultData?.threads || [];
+    return threads.map((t) => {
+      const parsed = parseInt(t.id, 10);
+      return {
+        id: isNaN(parsed) ? 1 : parsed,
+        name: t["target-id"] || t.name || `Thread ${t.id}`,
+        state: t.state || "stopped",
+        frame: t.frame ? {
+          id: 0,
+          name: t.frame.func || "??",
+          path: t.frame.fullname || t.frame.file || "",
+          line: parseInt(t.frame.line) || 0,
+          column: 0
+        } : void 0
+      };
+    });
+  }
+  /**
+   * Switch debugger focus to a specific thread.
+   */
+  async switchThread(threadId) {
+    if (!this.mi2)
+      throw new Error("GDB not initialized");
+    logger.debug("GDBBackend", `Switching to thread ${threadId}`);
+    await this.mi2.sendCommand(`-thread-select ${threadId}`);
+    this.currentFrameId = 0;
+  }
+  /**
    * Get debugger capabilities
    */
   getCapabilities() {
@@ -2482,6 +2711,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
       supportsWatchpoints: true,
       supportsTrace: false,
       supportsMultiCore: false,
+      supportsThreads: true,
       supportedArchitectures: ["x86_64", "i386", "arm", "arm64"],
       supportedTargets: ["linux", "windows", "qemu"]
     };
@@ -2492,49 +2722,69 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async restart() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Restarting session");
+    logger.debug("GDBBackend", "Restarting session");
     await this.mi2.sendCommand("-exec-run");
   }
   /**
-   * Frame up (toward caller)
+   * Frame up (toward caller).
+   * ADP-002: increments currentFrameId and sends absolute frame number.
+   * GDB MI does not support +1/-1 relative syntax.
    */
   async frameUp() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Frame up");
-    await this.mi2.sendCommand("-stack-select-frame +1");
+    this.currentFrameId++;
+    logger.debug("GDBBackend", "Frame up", { frameId: this.currentFrameId });
+    await this.mi2.sendCommand(`-stack-select-frame ${this.currentFrameId}`);
   }
   /**
-   * Frame down (toward callee)
+   * Frame down (toward callee).
+   * ADP-002: decrements currentFrameId and sends absolute frame number.
+   * Throws if already at the outermost frame (frame 0).
    */
   async frameDown() {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Frame down");
-    await this.mi2.sendCommand("-stack-select-frame -1");
+    if (this.currentFrameId === 0) {
+      throw new DebugError(
+        "OPERATION_FAILED" /* OPERATION_FAILED */,
+        "Already at the outermost frame",
+        "Use frame_up to navigate to inner frames first"
+      );
+    }
+    this.currentFrameId--;
+    logger.debug("GDBBackend", "Frame down", { frameId: this.currentFrameId });
+    await this.mi2.sendCommand(`-stack-select-frame ${this.currentFrameId}`);
   }
   /**
-   * Go to specific frame
+   * Go to specific frame.
+   * ADP-002: also updates currentFrameId so subsequent up/down are relative to this.
    */
   async gotoFrame(frameId) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Go to frame:", frameId);
+    this.currentFrameId = frameId;
+    logger.debug("GDBBackend", "Go to frame", { frameId });
     await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
   }
   /**
-   * Set temporary breakpoint
+   * Set temporary breakpoint.
+   * ADP-006: use GDB number as ID; ADP-007: parse verified from response.
    */
   async setTempBreakpoint(location) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Set temp breakpoint at", location);
-    await this.mi2.sendCommand(`-break-insert -t ${location.path}:${location.line}`);
+    logger.debug("GDBBackend", "Set temp breakpoint at", location);
+    const result = await this.mi2.sendCommand(
+      `-break-insert -t ${this.escapePath(location.path)}:${location.line}`
+    );
+    const bkpt = result.resultData?.bkpt;
+    const gdbNumber = bkpt?.number ? String(bkpt.number) : `tmp-${Date.now()}`;
     return {
-      id: `tbp-${Date.now()}`,
-      verified: true,
-      line: location.line,
-      file: location.path
+      id: gdbNumber,
+      verified: bkpt?.enabled === "y",
+      line: bkpt?.line ? parseInt(bkpt.line) : location.line,
+      file: bkpt?.fullname || bkpt?.file || location.path
     };
   }
   /**
@@ -2543,16 +2793,21 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async removeAllBreakpointsInFile(filePath) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Remove all breakpoints in", filePath);
+    logger.debug("GDBBackend", "Remove all breakpoints in", { filePath });
     const result = await this.mi2.sendCommand("-break-list");
     if (!result.resultData?.BreakpointTable?.body)
       return;
     const bps = result.resultData.BreakpointTable.body;
     for (const bp of bps) {
-      const bpFile = bp[4] || bp.file || "";
-      if (bpFile.includes(filePath)) {
-        const bpNumber = bp[0] || bp.number;
+      const bpFile = bp.fullname || bp[4] || bp.file || "";
+      const bpRelative = typeof bp.file === "string" ? bp.file : typeof bp[4] === "string" ? String(bp[4]) : "";
+      const matches = bpFile !== "" && (bpFile.includes(filePath) || bpRelative !== "" && filePath.endsWith("/" + bpRelative));
+      if (matches) {
+        const bpNumber = String(bp.number || bp[0] || "");
+        if (!bpNumber)
+          continue;
         await this.mi2.sendCommand(`-break-delete ${bpNumber}`);
+        this.breakpoints.delete(bpNumber);
       }
     }
   }
@@ -2562,9 +2817,25 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async listSource(params) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] List source");
+    logger.debug("GDBBackend", "List source");
+    const linesAround = params?.linesAround ?? 10;
+    const frameId = params?.frameId ?? this.currentFrameId;
+    if (frameId !== void 0) {
+      await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
+      const frameInfo = await this.mi2.sendCommand("-stack-info-frame");
+      const file = frameInfo.resultData?.frame?.fullname || frameInfo.resultData?.frame?.file;
+      const line = parseInt(frameInfo.resultData?.frame?.line ?? "0");
+      if (file && line) {
+        const start = Math.max(1, line - Math.floor(linesAround / 2));
+        const end = line + Math.ceil(linesAround / 2);
+        const result2 = await this.mi2.sendCommand(
+          `-interpreter-exec console "list ${file}:${start},${file}:${end}"`
+        );
+        return result2.resultData?.consoleOutput || result2.resultData?.value || "";
+      }
+    }
     const result = await this.mi2.sendCommand('-interpreter-exec console "list"');
-    return result.resultData?.value || "";
+    return result.resultData?.consoleOutput || result.resultData?.value || "";
   }
   /**
    * Get source info
@@ -2572,9 +2843,10 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async getSource(expression) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Get source:", expression);
+    logger.debug("GDBBackend", "Get source", { expression });
     const result = await this.mi2.sendCommand('-interpreter-exec console "info source"');
-    return result.resultData?.value || "";
+    const raw = result.resultData?.consoleOutput || result.resultData?.value || "";
+    return raw.replace(/\/[^\s:,"']+/g, "[path]");
   }
   /**
    * Pretty print expression
@@ -2582,7 +2854,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async prettyPrint(expression) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Pretty print:", expression);
+    logger.debug("GDBBackend", "Pretty print", { expression });
     const result = await this.mi2.sendCommand(`-data-evaluate-expression "${expression}"`);
     return {
       name: expression,
@@ -2596,9 +2868,17 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async whatis(expression) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Whatis:", expression);
-    const result = await this.mi2.sendCommand(`-interpreter-exec console "whatis ${expression}"`);
-    return result.resultData?.value || "";
+    logger.debug("GDBBackend", "Whatis", { expression });
+    const varName = `wt${Date.now()}`;
+    try {
+      const createResult = await this.mi2.sendCommand(`-var-create ${varName} * ${expression}`);
+      const type = createResult.resultData?.type || "";
+      await this.mi2.sendCommand(`-var-delete ${varName}`);
+      return type ? `type = ${type}` : "";
+    } catch {
+      const result = await this.mi2.sendCommand(`-interpreter-exec console "whatis ${expression}"`);
+      return result.resultData?.consoleOutput || result.resultData?.value || "";
+    }
   }
   /**
    * Execute statement
@@ -2606,7 +2886,7 @@ var GDBBackend = class extends import_events2.EventEmitter {
   async executeStatement(statement) {
     if (!this.mi2)
       throw new Error("GDB not initialized");
-    console.log("[GDBBackend] Execute statement:", statement);
+    logger.debug("GDBBackend", "Execute statement", { statement });
     const result = await this.mi2.sendCommand(`-interpreter-exec console "${statement}"`);
     return result.resultData?.consoleOutput || result.resultData?.value || "";
   }
@@ -2636,9 +2916,8 @@ var BackendManager = class _BackendManager {
    */
   static getInstance() {
     if (!this.instance) {
-      console.log("[BackendManager] Creating NEW singleton instance");
+      logger.debug("BackendManager", "Creating NEW singleton instance");
       this.instance = new _BackendManager();
-    } else {
     }
     return this.instance;
   }
@@ -2648,10 +2927,10 @@ var BackendManager = class _BackendManager {
    * @param config Backend configuration
    */
   createBackend(type, config) {
-    console.log("[BackendManager] Creating backend:", type, "Current instances:", this.backendInstances.size);
+    logger.debug("BackendManager", "Creating backend", { type, instances: this.backendInstances.size });
     const existing = this.backendInstances.get(type);
     if (existing) {
-      console.log("[BackendManager] Reusing existing backend instance");
+      logger.debug("BackendManager", "Reusing existing backend instance");
       this.currentBackend = existing;
       return existing;
     }
@@ -2667,7 +2946,7 @@ var BackendManager = class _BackendManager {
     }
     this.backendInstances.set(type, backend);
     this.currentBackend = backend;
-    console.log("[BackendManager] Backend created successfully and set as current");
+    logger.debug("BackendManager", "Backend created successfully and set as current");
     return backend;
   }
   /**
@@ -2675,8 +2954,7 @@ var BackendManager = class _BackendManager {
    */
   getCurrentBackend() {
     if (!this.currentBackend) {
-      console.log("[BackendManager] getCurrentBackend: No backend set! Current instances:", this.backendInstances.size);
-    } else {
+      logger.warn("BackendManager", "getCurrentBackend: No backend set", { instances: this.backendInstances.size });
     }
     return this.currentBackend;
   }
@@ -2693,7 +2971,7 @@ var BackendManager = class _BackendManager {
   async getOrCreateBackend(type, config) {
     let backend = this.currentBackend;
     if (!backend) {
-      console.log("[BackendManager] getOrCreateBackend: No current backend, creating...");
+      logger.debug("BackendManager", "getOrCreateBackend: No current backend, creating...");
       backend = this.createBackend(type, config);
       await backend.initialize(config);
     }
@@ -2704,7 +2982,13 @@ var BackendManager = class _BackendManager {
    */
   async releaseBackend() {
     if (this.currentBackend) {
-      console.log("[BackendManager] Releasing current backend");
+      logger.debug("BackendManager", "Releasing current backend");
+      for (const [type, backend] of this.backendInstances.entries()) {
+        if (backend === this.currentBackend) {
+          this.backendInstances.delete(type);
+          break;
+        }
+      }
       await this.currentBackend.terminate();
       this.currentBackend = void 0;
     }
@@ -2713,14 +2997,14 @@ var BackendManager = class _BackendManager {
    * Release all backends
    */
   async releaseAllBackends() {
-    console.log("[BackendManager] Releasing all backends");
+    logger.debug("BackendManager", "Releasing all backends");
     const backends = Array.from(this.backendInstances.entries());
     for (const [type, backend] of backends) {
       try {
         await backend.terminate();
-        console.log("[BackendManager] Released backend:", type);
+        logger.debug("BackendManager", "Released backend", { type });
       } catch (error) {
-        console.error("[BackendManager] Error releasing backend:", type, error);
+        logger.error("BackendManager", "Error releasing backend", { type, error });
       }
     }
     this.backendInstances.clear();
@@ -2731,32 +3015,279 @@ var BackendManager = class _BackendManager {
    */
   async executeOperation(operation, params) {
     if (!this.currentBackend) {
-      console.log("[BackendManager] executeOperation FAILED: No backend");
+      logger.warn("BackendManager", "executeOperation FAILED: No backend");
       throw new Error("No backend initialized. Call getOrCreateBackend first.");
     }
     const method = this.currentBackend[operation];
     if (!method) {
       throw new Error(`Unknown operation: ${operation}`);
     }
-    console.log("[BackendManager] Executing operation:", operation);
+    logger.debug("BackendManager", "Executing operation", { operation });
     return await method.call(this.currentBackend, params);
   }
 };
 var backendManager = BackendManager.getInstance();
 
+// src/utils/validation.ts
+function ok(params) {
+  return { isValid: true, params };
+}
+function fail(message) {
+  return { isValid: false, message };
+}
+function isNonEmptyString(v) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+function isNumber(v) {
+  return typeof v === "number" && !isNaN(v);
+}
+function validateLocation(loc) {
+  if (!loc || typeof loc !== "object")
+    return null;
+  if (!isNonEmptyString(loc.path) || !isNumber(loc.line))
+    return null;
+  return { path: loc.path, line: loc.line, column: loc.column };
+}
+function validateOperationArgs(operation, args) {
+  switch (operation) {
+    case "start":
+    case "continue":
+    case "pause":
+    case "next":
+    case "step_over":
+    case "stepOver":
+    case "step_in":
+    case "stepIn":
+    case "step_out":
+    case "stepOut":
+    case "restart":
+    case "quit":
+    case "terminate":
+    case "stack_trace":
+    case "up":
+    case "frame_up":
+    case "down":
+    case "frame_down":
+    case "get_active_breakpoints":
+    case "get_last_stop_info":
+    case "get_scope_preview":
+    case "get_capabilities":
+    case "get_globals":
+    case "get_arguments":
+    case "list_all_locals":
+    case "list_threads":
+      return ok(args || {});
+    case "attach": {
+      if (!args || !isNumber(args.processId)) {
+        return fail("'attach' requires 'processId' (number)");
+      }
+      return ok(args);
+    }
+    case "write_memory": {
+      if (!args || !isNumber(args.address)) {
+        return fail("'write_memory' requires 'address' (number)");
+      }
+      return ok(args);
+    }
+    case "launch": {
+      if (!args || typeof args !== "object")
+        return ok({});
+      return ok(args);
+    }
+    case "set_breakpoint":
+    case "set_temp_breakpoint": {
+      if (!args)
+        return fail(`'${operation}' requires a 'location' parameter`);
+      const loc = validateLocation(args.location);
+      if (!loc)
+        return fail(
+          `'${operation}' requires 'location' with 'path' (string) and 'line' (number)`
+        );
+      return ok({ ...args, location: loc });
+    }
+    case "remove_breakpoint": {
+      if (!args)
+        return fail("'remove_breakpoint' requires 'id' or 'location' parameter");
+      if (args.id !== void 0) {
+        return ok({ ...args, id: String(args.id) });
+      }
+      const loc = validateLocation(args.location);
+      if (!loc)
+        return fail(
+          "'remove_breakpoint' requires 'id' (string or number) or 'location' with 'path' and 'line'"
+        );
+      return ok({ ...args, location: loc });
+    }
+    case "remove_all_breakpoints_in_file": {
+      if (!args || !isNonEmptyString(args.filePath)) {
+        return fail(
+          "'remove_all_breakpoints_in_file' requires 'filePath' (string)"
+        );
+      }
+      return ok(args);
+    }
+    case "disable_breakpoint":
+    case "enable_breakpoint": {
+      if (!args)
+        return fail(`'${operation}' requires a 'location' parameter`);
+      const loc = validateLocation(args.location);
+      if (!loc)
+        return fail(
+          `'${operation}' requires 'location' with 'path' and 'line'`
+        );
+      return ok({
+        ...args,
+        location: loc,
+        enable: operation === "enable_breakpoint"
+      });
+    }
+    case "ignore_breakpoint": {
+      if (!args)
+        return fail(
+          "'ignore_breakpoint' requires 'location' and 'ignoreCount'"
+        );
+      const loc = validateLocation(args.location);
+      if (!loc)
+        return fail(
+          "'ignore_breakpoint' requires 'location' with 'path' and 'line'"
+        );
+      if (args.ignoreCount !== null && !isNumber(args.ignoreCount)) {
+        return fail("'ignoreCount' must be a number or null");
+      }
+      return ok({ ...args, location: loc });
+    }
+    case "set_breakpoint_condition": {
+      if (!args)
+        return fail(
+          "'set_breakpoint_condition' requires 'location' and 'condition'"
+        );
+      const loc = validateLocation(args.location);
+      if (!loc)
+        return fail("requires 'location' with 'path' and 'line'");
+      return ok({ ...args, location: loc });
+    }
+    case "jump":
+    case "until": {
+      if (!args || !isNumber(args.line)) {
+        return fail(`'${operation}' requires 'line' (number)`);
+      }
+      return ok(args);
+    }
+    case "goto_frame": {
+      if (!args || !isNumber(args.frameId)) {
+        return fail("'goto_frame' requires 'frameId' (number)");
+      }
+      return ok(args);
+    }
+    case "list_source":
+      return ok(args || {});
+    case "get_source": {
+      if (!args || !isNonEmptyString(args.expression)) {
+        return fail("'get_source' requires 'expression' (string)");
+      }
+      return ok(args);
+    }
+    case "get_stack_frame_variables":
+    case "get_variables":
+    case "get_args":
+      return ok(args || {});
+    case "evaluate":
+    case "pretty_print":
+    case "whatis": {
+      if (!args || !isNonEmptyString(args.expression)) {
+        return fail(`'${operation}' requires 'expression' (string)`);
+      }
+      return ok(args);
+    }
+    case "execute_statement": {
+      if (!args || !isNonEmptyString(args.statement)) {
+        return fail("'execute_statement' requires 'statement' (string)");
+      }
+      return ok(args);
+    }
+    case "switch_thread": {
+      if (!args || !isNumber(args.threadId)) {
+        return fail("'switch_thread' requires 'threadId' (number)");
+      }
+      return ok(args);
+    }
+    case "get_registers": {
+      if (args && args.frameId !== void 0 && !isNumber(args.frameId)) {
+        return fail("'get_registers' requires 'frameId' to be a number if provided");
+      }
+      return ok(args || {});
+    }
+    case "read_memory": {
+      if (!args || !isNonEmptyString(args.memoryReference) || !isNumber(args.count)) {
+        return fail("'read_memory' requires 'memoryReference' (string) and 'count' (number)");
+      }
+      if (args.offset !== void 0 && !isNumber(args.offset)) {
+        return fail("'read_memory' requires 'offset' to be a number if provided");
+      }
+      return ok(args);
+    }
+    case "disassemble": {
+      if (!args || !isNonEmptyString(args.memoryReference) || !isNumber(args.instructionCount)) {
+        return fail("'disassemble' requires 'memoryReference' (string) and 'instructionCount' (number)");
+      }
+      if (args.offset !== void 0 && !isNumber(args.offset)) {
+        return fail("'offset' must be a number");
+      }
+      if (args.instructionOffset !== void 0 && !isNumber(args.instructionOffset)) {
+        return fail("'instructionOffset' must be a number");
+      }
+      return ok(args);
+    }
+    case "get_data_breakpoint_info": {
+      if (!args || !isNonEmptyString(args.name)) {
+        return fail("'get_data_breakpoint_info' requires 'name' (string)");
+      }
+      return ok(args);
+    }
+    case "set_data_breakpoint": {
+      if (!args || !isNonEmptyString(args.dataId)) {
+        return fail("'set_data_breakpoint' requires 'dataId' (string)");
+      }
+      return ok(args);
+    }
+    case "watch": {
+      if (!args || !isNonEmptyString(args.name)) {
+        return fail("'watch' requires 'name' (string)");
+      }
+      if (args.accessType !== void 0 && !["read", "write", "readWrite"].includes(args.accessType)) {
+        return fail("'watch' accessType must be 'read', 'write', or 'readWrite'");
+      }
+      return ok(args);
+    }
+    default:
+      return fail(`Unknown operation: '${operation}'`);
+  }
+}
+
 // src/server/router.ts
 var LOG = "Router";
+function sanitizeError(message) {
+  return message.replace(/\/home\/[^/:"\s]+\/[^:\s"]*/g, "[path]");
+}
+var ValidationError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ValidationError";
+  }
+};
 async function handleRequest(method, url, body, req) {
   try {
     const result = await routeRequest(method, url, body);
     return { statusCode: 200, body: result };
   } catch (error) {
-    console.error(`[${LOG}] Error:`, error.message);
+    logger.error(LOG, "Request error", { error: error.message });
+    const statusCode = error.name === "ValidationError" ? 400 : 500;
     return {
-      statusCode: 500,
+      statusCode,
       body: {
         success: false,
-        error: error.message,
+        // ADP-024: sanitize paths before they reach the caller
+        error: sanitizeError(error.message),
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       }
     };
@@ -2765,7 +3296,7 @@ async function handleRequest(method, url, body, req) {
 async function routeRequest(method, url, body) {
   const normalizePath = (p) => p.replace(/\/+$/, "") || "/";
   const pathname = normalizePath(url.split("?")[0]);
-  console.log(`[${LOG}] Routing request: ${method} ${pathname}`);
+  logger.debug(LOG, `Routing request: ${method} ${pathname}`);
   if (method === "GET" && pathname === "/api/ping") {
     return handlePing();
   }
@@ -2778,60 +3309,65 @@ async function routeRequest(method, url, body) {
   if (method === "POST" && (pathname === "/api/debug" || pathname === "/api/debug/execute_operation")) {
     return handleDebugOperation(body);
   }
-  console.log(`[${LOG}] No route matched for ${method} ${pathname}`);
+  logger.warn(LOG, `No route matched for ${method} ${pathname}`);
   throw new Error(`Unknown route: ${method} ${pathname}`);
 }
 function handlePing() {
+  const operations = [
+    // Session
+    "launch",
+    "attach",
+    "terminate",
+    "restart",
+    "start",
+    // Execution
+    "continue",
+    "next",
+    "step_in",
+    "step_out",
+    "pause",
+    "jump",
+    "until",
+    // Frame navigation
+    "up",
+    "down",
+    "goto_frame",
+    // Breakpoints
+    "set_breakpoint",
+    "set_temp_breakpoint",
+    "remove_breakpoint",
+    "remove_all_breakpoints_in_file",
+    "get_active_breakpoints",
+    // Inspection
+    "stack_trace",
+    "get_variables",
+    "get_arguments",
+    "get_globals",
+    "evaluate",
+    "get_registers",
+    "read_memory",
+    "write_memory",
+    "list_source",
+    "get_source",
+    "pretty_print",
+    "whatis",
+    "execute_statement",
+    "list_all_locals",
+    "get_scope_preview",
+    // Threading
+    "list_threads",
+    "switch_thread",
+    // Info
+    "get_last_stop_info",
+    "get_capabilities"
+  ];
   return {
     success: true,
     data: {
       message: "pong",
-      version: "v3.a0",
-      operations: [
-        // Session
-        "launch",
-        "attach",
-        "terminate",
-        "restart",
-        // Execution
-        "continue",
-        "next",
-        "step_in",
-        "step_out",
-        "pause",
-        "jump",
-        "until",
-        // Frame navigation
-        "up",
-        "down",
-        "goto_frame",
-        // Breakpoints
-        "set_breakpoint",
-        "set_temp_breakpoint",
-        "remove_breakpoint",
-        "remove_all_breakpoints_in_file",
-        "get_active_breakpoints",
-        // Inspection
-        "stack_trace",
-        "get_variables",
-        "get_arguments",
-        "get_globals",
-        "evaluate",
-        "get_registers",
-        "read_memory",
-        "write_memory",
-        "list_source",
-        "get_source",
-        "pretty_print",
-        "whatis",
-        "execute_statement",
-        "list_all_locals",
-        "get_scope_preview",
-        // Info
-        "get_last_stop_info",
-        "get_capabilities"
-      ],
-      operationCount: 38
+      version: "3.0.0",
+      operations,
+      operationCount: operations.length
     },
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -2843,7 +3379,7 @@ async function handleStatus() {
   return {
     success: true,
     data: {
-      version: "v3.a0",
+      version: "3.0.0",
       hasActiveSession: !!backend,
       isRunning,
       status: isRunning ? "running" : "stopped",
@@ -2857,7 +3393,7 @@ async function handleCreateDebugger(body) {
   if (!backendType) {
     throw new Error("Missing backendType field");
   }
-  console.log(`[${LOG}] Creating debugger: ${backendType}`);
+  logger.debug(LOG, `Creating debugger: ${backendType}`);
   const config = {
     backendType,
     gdbPath,
@@ -2887,15 +3423,21 @@ async function handleDebugOperation(body) {
   if (!operation || typeof operation !== "string") {
     throw new Error("Missing or invalid 'operation' field");
   }
+  if (operation !== "launch") {
+    const validation = validateOperationArgs(operation, params);
+    if (!validation.isValid) {
+      throw new ValidationError(validation.message || `Invalid parameters for '${operation}'`);
+    }
+  }
   if (operation === "launch") {
     const backendType = params?.backendType || "gdb";
     const config = {
       backendType,
       gdbPath: params?.gdbPath || "gdb"
     };
-    console.log(`[${LOG}] Creating backend for launch: ${backendType}`);
+    logger.debug(LOG, `Creating backend for launch: ${backendType}`);
     if (launchDelegate) {
-      console.log(`[${LOG}] Delegating launch to VS Code UI via callback`);
+      logger.debug(LOG, "Delegating launch to VS Code UI via callback");
       const success = await launchDelegate(params);
       if (!success) {
         throw new Error("Failed to start VS Code debugging session");
@@ -2914,11 +3456,24 @@ async function handleDebugOperation(body) {
       stopReason: params.stopOnEntry ? "entry" : "breakpoint"
     };
   }
+  if (operation === "get_capabilities") {
+    const backend2 = backendManager.getCurrentBackend();
+    const caps = backend2 ? backend2.getCapabilities() : {
+      supportsLaunch: true,
+      supportsBreakpoints: true,
+      supportsThreads: true,
+      supportsMemory: true,
+      supportsStepping: true,
+      supportsEvaluation: true,
+      supportsRegisters: true
+    };
+    return { success: true, operation, data: caps, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+  }
   const backend = backendManager.getCurrentBackend();
   if (!backend) {
     throw new Error("No debug backend initialized. Launch a debug session first.");
   }
-  console.log(`[${LOG}] Executing operation: ${operation}`);
+  logger.debug(LOG, `Executing operation: ${operation}`);
   const result = await executeBackendOperation(backend, operation, params);
   return {
     success: true,
@@ -2934,7 +3489,11 @@ async function executeBackendOperation(backend, operation, params) {
     case "attach":
       return await backend.attach(params);
     case "terminate":
+    case "quit":
       return await backend.terminate();
+    case "start":
+      await backend.start();
+      return { success: true };
     case "continue":
       await backend.continue();
       return { success: true };
@@ -2978,8 +3537,20 @@ async function executeBackendOperation(backend, operation, params) {
       return await backend.setBreakpoint(params?.location);
     case "set_temp_breakpoint":
       return await backend.setTempBreakpoint(params?.location);
-    case "remove_breakpoint":
-      return await backend.removeBreakpoint(params?.id);
+    case "remove_breakpoint": {
+      let bpId = params?.id != null ? String(params.id) : void 0;
+      if (!bpId && params?.location) {
+        const loc = params.location;
+        const active = await backend.getBreakpoints();
+        const match = active.find(
+          (bp) => (bp.file === loc.path || bp.file?.endsWith(loc.path)) && Math.abs(bp.line - loc.line) <= 1
+        );
+        if (!match)
+          throw new Error(`No breakpoint found at ${loc.path}:${loc.line}`);
+        bpId = match.id;
+      }
+      return await backend.removeBreakpoint(bpId);
+    }
     case "remove_all_breakpoints_in_file":
       await backend.removeAllBreakpointsInFile(params?.filePath);
       return { success: true };
@@ -2997,14 +3568,25 @@ async function executeBackendOperation(backend, operation, params) {
       return await backend.evaluate(params?.expression, params?.frameId);
     case "get_registers":
       return await backend.getRegisters();
-    case "read_memory":
-      return await backend.readMemory(params?.address, params?.length);
-    case "write_memory":
-      return await backend.writeMemory(params?.address, params?.data);
+    case "read_memory": {
+      const memRef = params?.memoryReference || params?.address;
+      const memCount = params?.count ?? params?.length;
+      const memAddr = typeof memRef === "string" ? parseInt(memRef, 16) : Number(memRef);
+      const buf = await backend.readMemory(memAddr, memCount);
+      return { address: "0x" + memAddr.toString(16), data: buf.toString("hex"), count: buf.length };
+    }
+    case "write_memory": {
+      const wrAddr = typeof params?.address === "string" ? parseInt(params.address, 16) : Number(params?.address);
+      const wrData = params?.data ? Buffer.from(params.data, "hex") : Buffer.alloc(0);
+      await backend.writeMemory(wrAddr, wrData);
+      return { success: true, address: "0x" + wrAddr.toString(16), bytesWritten: wrData.length };
+    }
     case "list_source":
       return await backend.listSource(params);
-    case "get_source":
-      return await backend.getSource(params?.expression);
+    case "get_source": {
+      const raw = await backend.getSource(params?.expression);
+      return typeof raw === "string" ? sanitizeError(raw) : raw;
+    }
     case "pretty_print":
       return await backend.prettyPrint(params?.expression);
     case "whatis":
@@ -3015,6 +3597,11 @@ async function executeBackendOperation(backend, operation, params) {
       return await backend.listAllLocals();
     case "get_scope_preview":
       return await backend.getScopePreview();
+    case "list_threads":
+      return await backend.listThreads();
+    case "switch_thread":
+      await backend.switchThread(params?.threadId);
+      return { success: true };
     case "get_last_stop_info":
       return await backend.getLastStopInfo();
     case "get_capabilities":
@@ -3142,8 +3729,12 @@ var HttpServer = class {
     const startTime = Date.now();
     const method = req.method || "GET";
     const url = req.url || "/";
-    console.log(`[${LOG2}] Incoming request: ${method} ${url}`);
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    logger.debug(LOG2, `Incoming request: ${method} ${url}`);
+    const origin = req.headers["origin"] || "";
+    const isLocalOrigin = !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    if (isLocalOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", origin || "http://localhost");
+    }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     res.setHeader("Content-Type", "application/json");
@@ -3222,12 +3813,10 @@ var HttpServer = class {
 
 // src/protocol/dap/DebugAdapter.ts
 var import_debugadapter = __toESM(require_main());
-var fs3 = __toESM(require("fs"));
-var LOG_FILE3 = "/home/datdang/working/common_dev/ai_vscode_debug/proxy.log";
+var fs2 = __toESM(require("fs"));
 var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDebugSession {
   static THREAD_ID = 1;
   variableHandles = new import_debugadapter.Handles();
-  breakpointIdMap = /* @__PURE__ */ new Map();
   backend;
   isRunning = false;
   stopRequested = false;
@@ -3264,7 +3853,7 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
   async launchRequest(response, args) {
     try {
       this.log(`Launch request: ${JSON.stringify(args, null, 2)}`);
-      if (!fs3.existsSync(args.program)) {
+      if (!fs2.existsSync(args.program)) {
         this.sendErrorResponse(response, {
           id: 1,
           format: `Program not found: ${args.program}`
@@ -3281,7 +3870,8 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
       await this.backend.launch({
         program: args.program,
         cwd: args.cwd,
-        stopOnEntry: args.stopOnEntry ?? true
+        stopOnEntry: args.stopOnEntry ?? true,
+        env: args.env
       });
       this.sendEvent(new import_debugadapter.InitializedEvent());
       this.sendResponse(response);
@@ -3445,43 +4035,15 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
    * Set breakpoints
    */
   async setBreakpointsRequest(response, args) {
-    try {
-      this.log(`Set breakpoints: ${JSON.stringify(args, null, 2)}`);
-      if (!this.backend) {
-        this.sendErrorResponse(response, {
-          id: 12,
-          format: "Debugger not initialized"
-        });
-        return;
-      }
-      const actualBreakpoints = [];
-      const sourcePath = args.source.path || "";
-      for (const sourceBp of args.breakpoints || []) {
-        const result = await this.backend.setBreakpoint({
-          path: sourcePath,
-          line: sourceBp.line
-        });
-        const dapId = Date.now() + Math.random();
-        this.breakpointIdMap.set(dapId, result.id);
-        const bp = new import_debugadapter.Breakpoint(
-          result.verified,
-          sourceBp.line,
-          void 0,
-          args.source
-        );
-        bp.id = dapId;
-        actualBreakpoints.push(bp);
-      }
-      response.body = { breakpoints: actualBreakpoints };
-      this.sendResponse(response);
-      this.log("Set breakpoints complete");
-    } catch (error) {
-      this.log(`Set breakpoints error: ${error.message}`);
-      this.sendErrorResponse(response, {
-        id: 13,
-        format: error.message
-      });
-    }
+    const sourceBps = args.breakpoints || [];
+    const acknowledged = sourceBps.map((bp, i) => {
+      const dapBp = new import_debugadapter.Breakpoint(false, bp.line, void 0, args.source);
+      dapBp.id = i;
+      return dapBp;
+    });
+    response.body = { breakpoints: acknowledged };
+    this.sendResponse(response);
+    this.log(`setBreakpointsRequest: acknowledged ${sourceBps.length} VS Code UI breakpoints (not forwarded to GDB)`);
   }
   /**
    * Get stack trace
@@ -3638,7 +4200,7 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
     try {
       this.log("Terminate request");
       if (this.backend) {
-        await this.backend.terminate();
+        await backendManager.releaseBackend();
         this.backend = void 0;
       }
       this.sendEvent(new import_debugadapter.TerminatedEvent());
@@ -3659,7 +4221,7 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
     try {
       this.log("Disconnect request");
       if (this.backend) {
-        await this.backend.terminate();
+        await backendManager.releaseBackend();
         this.backend = void 0;
       }
       this.sendResponse(response);
@@ -3673,15 +4235,27 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
     }
   }
   /**
-   * Get threads
+   * Get threads — queries backend for actual thread list.
+   * Falls back to single hardcoded thread on error.
    */
-  threadsRequest(response) {
+  async threadsRequest(response) {
     this.log("Threads request");
-    response.body = {
-      threads: [
-        new import_debugadapter.Thread(_AIDebugSession.THREAD_ID, "Thread 1")
-      ]
-    };
+    try {
+      if (this.backend) {
+        const threadInfos = await this.backend.listThreads();
+        response.body = {
+          threads: threadInfos.map((t) => new import_debugadapter.Thread(t.id, t.name))
+        };
+      } else {
+        response.body = {
+          threads: [new import_debugadapter.Thread(_AIDebugSession.THREAD_ID, "Thread 1")]
+        };
+      }
+    } catch {
+      response.body = {
+        threads: [new import_debugadapter.Thread(_AIDebugSession.THREAD_ID, "Thread 1")]
+      };
+    }
     this.sendResponse(response);
     this.log("Threads complete");
   }
@@ -3705,13 +4279,7 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
    * Log helper
    */
   log(message) {
-    const logMsg = `[AIDebugSession][${(/* @__PURE__ */ new Date()).toISOString()}] ${message}
-`;
-    console.log(logMsg.trim());
-    try {
-      fs3.appendFileSync(LOG_FILE3, logMsg);
-    } catch (e) {
-    }
+    logger.debug("DebugAdapter", message);
   }
 };
 
@@ -3719,7 +4287,7 @@ var AIDebugSession = class _AIDebugSession extends import_debugadapter.LoggingDe
 var LOG3 = "Extension";
 var server = null;
 function activate(context) {
-  logger.info(LOG3, "AI Debug Proxy v3.0 activating...");
+  logger.info(LOG3, "AI Debug Proxy v3.0.0 activating...");
   const config = vscode2.workspace.getConfiguration("aiDebugProxy");
   const port = config.get("port", 9999);
   const autoStart = config.get("autoStart", true);
@@ -3769,6 +4337,9 @@ function activate(context) {
         const currentConfig = vscode2.workspace.getConfiguration("aiDebugProxy");
         const currentPort = currentConfig.get("port", 9999);
         if (!server || server.getPort() !== currentPort) {
+          if (server && server.isRunning()) {
+            await server.stop();
+          }
           server = new HttpServer(currentPort);
         }
         await server.start();
@@ -3803,9 +4374,9 @@ function activate(context) {
       const installDir = path2.join(os.homedir(), ".local", "lib", "ai-debug-proxy");
       const dest = path2.join(installDir, "ai-debug.sh");
       try {
-        await fs4.promises.mkdir(installDir, { recursive: true });
-        await fs4.promises.copyFile(src, dest);
-        await fs4.promises.chmod(dest, 493);
+        await fs3.promises.mkdir(installDir, { recursive: true });
+        await fs3.promises.copyFile(src, dest);
+        await fs3.promises.chmod(dest, 493);
         const shellConfig = vscode2.workspace.getConfiguration("terminal.integrated.env");
         const platform2 = os.platform();
         const shellEnv = platform2 === "win32" ? "windows" : platform2 === "darwin" ? "osx" : "linux";
@@ -3821,7 +4392,7 @@ function activate(context) {
       }
     })
   );
-  logger.info(LOG3, "AI Debug Proxy v3.0 activated successfully");
+  logger.info(LOG3, "AI Debug Proxy v3.0.0 activated successfully");
 }
 async function deactivate() {
   logger.info(LOG3, "Deactivating AI Debug Proxy...");

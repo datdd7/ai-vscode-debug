@@ -21,6 +21,7 @@ import * as http from "http";
 import { backendManager } from "../backend/BackendManager";
 import { IDebugBackend } from "../core/IDebugBackend";
 import { validateOperationArgs } from "../utils/validation";
+import { logger } from "../utils/logging";
 
 const LOG = "Router";
 
@@ -58,7 +59,7 @@ export async function handleRequest(
         const result = await routeRequest(method, url, body);
         return { statusCode: 200, body: result }; /* $REQ REQ-API-002 */
     } catch (error: any) {
-        console.error(`[${LOG}] Error:`, error.message);
+        logger.error(LOG, 'Request error', { error: error.message });
         // ADP-008: return 400 for validation failures, 500 for everything else  /* $REQ REQ-API-003 REQ-API-004 */
         const statusCode = error.name === 'ValidationError' ? 400 : 500;
         return {
@@ -84,7 +85,7 @@ async function routeRequest(
     const normalizePath = (p: string) => p.replace(/\/+$/, '') || '/';
     const pathname = normalizePath(url.split('?')[0]);
 
-    console.log(`[${LOG}] Routing request: ${method} ${pathname}`);
+    logger.debug(LOG, `Routing request: ${method} ${pathname}`);
 
     // Ping endpoint
     if (method === "GET" && pathname === "/api/ping") {
@@ -106,7 +107,7 @@ async function routeRequest(
         return handleDebugOperation(body);
     }
 
-    console.log(`[${LOG}] No route matched for ${method} ${pathname}`);
+    logger.warn(LOG, `No route matched for ${method} ${pathname}`);
     throw new Error(`Unknown route: ${method} ${pathname}`);
 }
 
@@ -138,7 +139,7 @@ function handlePing(): any { /* $REQ REQ-API-008 */
         success: true,
         data: {
             message: "pong",
-            version: "v3.a1",
+            version: "3.0.0",
             operations,
             operationCount: operations.length
         },
@@ -157,7 +158,7 @@ async function handleStatus(): Promise<any> {
     return {
         success: true,
         data: {
-            version: "v3.a1",
+            version: "3.0.0",
             hasActiveSession: !!backend,
             isRunning: isRunning,
             status: isRunning ? 'running' : 'stopped',
@@ -177,7 +178,7 @@ async function handleCreateDebugger(body: any): Promise<any> {
         throw new Error("Missing backendType field");
     }
 
-    console.log(`[${LOG}] Creating debugger: ${backendType}`);
+    logger.debug(LOG, `Creating debugger: ${backendType}`);
 
     const config = {
         backendType,
@@ -236,10 +237,10 @@ async function handleDebugOperation(body: any): Promise<any> {
             gdbPath: params?.gdbPath || 'gdb'
         };
         
-        console.log(`[${LOG}] Creating backend for launch: ${backendType}`);
-        
+        logger.debug(LOG, `Creating backend for launch: ${backendType}`);
+
         if (launchDelegate) {
-            console.log(`[${LOG}] Delegating launch to VS Code UI via callback`);
+            logger.debug(LOG, 'Delegating launch to VS Code UI via callback');
             const success = await launchDelegate(params);
             if (!success) {
                 throw new Error("Failed to start VS Code debugging session");
@@ -261,13 +262,28 @@ async function handleDebugOperation(body: any): Promise<any> {
         };
     }
 
+    // get_capabilities works without an active session (ADP-XXX: API discovery)
+    if (operation === 'get_capabilities') {
+        const backend = backendManager.getCurrentBackend();
+        const caps = backend ? backend.getCapabilities() : {
+            supportsLaunch: true,
+            supportsBreakpoints: true,
+            supportsThreads: true,
+            supportsMemory: true,
+            supportsStepping: true,
+            supportsEvaluation: true,
+            supportsRegisters: true
+        };
+        return { success: true, operation, data: caps, timestamp: new Date().toISOString() };
+    }
+
     // Get active backend for other operations
     const backend = backendManager.getCurrentBackend();
     if (!backend) {
         throw new Error("No debug backend initialized. Launch a debug session first.");
     }
 
-    console.log(`[${LOG}] Executing operation: ${operation}`);
+    logger.debug(LOG, `Executing operation: ${operation}`);
 
     // Execute operation
     const result = await executeBackendOperation(backend, operation, params);
@@ -292,6 +308,7 @@ async function executeBackendOperation(backend: IDebugBackend, operation: string
         case 'attach':
             return await backend.attach(params);
         case 'terminate':
+        case 'quit':
             return await backend.terminate();
         
         // ADP-010: start() runs -exec-run after launch + configurationDone
@@ -345,8 +362,21 @@ async function executeBackendOperation(backend: IDebugBackend, operation: string
             return await backend.setBreakpoint(params?.location);
         case 'set_temp_breakpoint':
             return await backend.setTempBreakpoint(params?.location);
-        case 'remove_breakpoint':
-            return await backend.removeBreakpoint(params?.id);
+        case 'remove_breakpoint': {
+            // Accept id directly OR resolve from location {path, line}
+            let bpId: string | undefined = params?.id != null ? String(params.id) : undefined;
+            if (!bpId && params?.location) {
+                const loc = params.location as { path: string; line: number };
+                const active = await backend.getBreakpoints();
+                const match = active.find(bp =>
+                    (bp.file === loc.path || bp.file?.endsWith(loc.path)) &&
+                    Math.abs(bp.line - loc.line) <= 1
+                );
+                if (!match) throw new Error(`No breakpoint found at ${loc.path}:${loc.line}`);
+                bpId = match.id;
+            }
+            return await backend.removeBreakpoint(bpId as string);
+        }
         case 'remove_all_breakpoints_in_file':
             await backend.removeAllBreakpointsInFile(params?.filePath);
             return { success: true };
@@ -386,8 +416,12 @@ async function executeBackendOperation(backend: IDebugBackend, operation: string
         }
         case 'list_source':
             return await backend.listSource(params);
-        case 'get_source':
-            return await backend.getSource(params?.expression);
+        case 'get_source': {
+            // ADP-024: sanitize paths in raw GDB console output before returning to caller
+            const raw = await backend.getSource(params?.expression);
+            /* v8 ignore next -- getSource() always returns string; non-string branch is defensive */
+            return typeof raw === 'string' ? sanitizeError(raw) : raw;
+        }
         case 'pretty_print':
             return await backend.prettyPrint(params?.expression);
         case 'whatis':
@@ -409,6 +443,7 @@ async function executeBackendOperation(backend: IDebugBackend, operation: string
         // Info
         case 'get_last_stop_info':
             return await backend.getLastStopInfo();
+        /* v8 ignore next 2 -- unreachable: get_capabilities is intercepted in handleDebugOperation before reaching executeBackendOperation */
         case 'get_capabilities':
             return backend.getCapabilities();
 

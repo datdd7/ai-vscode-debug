@@ -7,31 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v3.0.0] - 2026-03-31
+## [v3.0.0] - 2026-04-14
 
-### Stable Release — Full Coverage, Production-Ready
+### Stable Release
 
-### Added
-- **Comprehensive unit test suite** (369 tests, 100% pass rate): MI2 class, GDBBackend operations, errors, router, validation, MI parser — full coverage with injection-based testing (no real GDB/child process required)
-- **Coverage infrastructure**: `vitest.config.ts` with `v8` provider, per-module exclusions for VS Code runtime code, `npm run test:coverage` command
-- **RELEASE_MANIFEST.md**: Formal release sign-off document at `docs/release/RELEASE_MANIFEST.md`
-- **test-matrix.html**: Full 38-operation test coverage map at `docs/testing/test-matrix.html`
-- **CI/CD dashboard** (`infrastructure/dashboard/`): Black-pink theme Vite+TypeScript SPA showing pipeline status, metrics, and run history
+### Architecture
 
-### Coverage Achievements (Gate S1 — all PASS)
-| Module | Target | Achieved |
-|--------|--------|----------|
-| `GDBBackend.ts` | 85% | **92.97%** |
-| `router.ts` | 85% | **98.28%** |
-| `validation.ts` | 90% | **99.09%** |
-| `MI2.ts` | 80% | **99.09%** |
-| `mi_parse.ts` | 80% | **81.27%** |
-| `errors.ts` | — | **100%** |
-| **Overall** | **70%** | **91.08%** |
+- **6-layer architecture**: `core` → `protocol` → `backend` → `server` → `vscode` → `agent`
+- **Direct GDB/MI2 backend** (`GDBBackend.ts`): no DAP dependency for core operations — talks to GDB directly via MI2 protocol
+- **BackendManager**: singleton factory, pluggable backend interface (`IDebugBackend`) — ready for LLDB/Lauterbach
+- **MCP server** (`mcp-debug-server/`): Python FastMCP server exposing all 38 operations as MCP tools for Claude, LangChain, and other AI frameworks
+- **SubagentOrchestrator**: concurrent CLI task spawning with configurable concurrency limit
 
-### Test Suite Growth
-- Unit tests: 207 → **369** tests (+162)
-- New suites: `errors.test.ts` (21), expanded `GDBBackend.operations.test.ts` (83), expanded `MI2.normalize.test.ts` (44), expanded `mi_parse.test.ts`, `router.operations.test.ts`
+### Operations (38 total)
+
+Session, execution control, frame navigation, breakpoints, inspection, hardware access, threading, status — full coverage documented in [API Reference](../docs/guides/api-reference.md).
+
+### Code Quality
+
+- Replaced all `console.log` with structured `logger` utility across all production files
+- Fixed `frameDown()` silent no-op at frame 0 — now throws `DebugError(OPERATION_FAILED)`
+- CI security audit updated to block on moderate+ vulnerabilities
+
+### Test Results
+
+- **Unit tests**: 541/541 (vitest, 100% coverage threshold enforced)
+- **E2E tests**: 72/73 PASS (1 allowed skip — A3 restart, tracked as issue #42)
+- **Regression-critical**: 11/11 PASS
+- **Production audit**: 0 moderate+ vulnerabilities (`npm audit --omit=dev`)
+
+### CI/CD
+
+- 6-stage GitHub Actions pipeline: lint → unit tests → MCP tests → build → security audit → gate
+- CI/CD dashboard (`infrastructure/dashboard/`): Vite + TypeScript SPA with pipeline metrics
 
 ---
 
@@ -86,8 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v2.1.0] - 2026-03-18
 
-### 🎉 Phase 1 & 2 Complete - AI-First Debugging Platform
+### Phase 1 & 2 Complete — AI-First Debugging Platform
 
 ### Added
 
@@ -214,12 +223,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Version History
 
 | Version | Date | Status | Highlights |
-|---------|------|--------|------------|
-| 2.1.0 | 2026-03-18 | ✅ Features, ⏳ QA | Phase 1&2 Complete, AI-First |
-| 1.0.0 | 2026-03-11 | ✅ Stable | Initial Release |
+| --- | --- | --- | --- |
+| 3.0.0 | 2026-04-14 | ✅ Stable | 6-layer arch, direct GDB/MI2, MCP server, 541 unit tests, 72/73 E2E |
+| 3.0.0-alpha.1 | 2026-03-30 | ✅ Beta | Full 38-operation coverage, multi-thread, security/perf tests |
+| 3.a0 | 2026-03-30 | ✅ Alpha | Initial v3 architecture |
+| 2.1.0 | 2026-03-18 | 🗄 Archived | Phase 1&2 complete, AI-First features |
+| 1.0.0 | 2026-03-11 | 🗄 Archived | Initial release |
 
 ---
 
-**Latest Release:** v2.1.0 (2026-03-18)  
-**Next Release:** v2.1.1 (QA validation, bug fixes)  
-**Roadmap:** v2.2.0 (DWARF types), v3.0.0 (Remote debugging)
+**Latest Release:** v3.0.0 (2026-04-14)  
+**Roadmap:** v3.1.0 (LLDB backend), v3.2.0 (Lauterbach TRACE32)

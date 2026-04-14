@@ -143,4 +143,26 @@ suite('Suite K: Extended Operations', () => {
             'GDB backend must support launch'
         );
     });
+
+    test('K7: get_capabilities — works without active session', async function() {
+        this.timeout(10000);
+        // Ensure no session is active (teardown runs after setup which launched one;
+        // this test explicitly terminates before calling get_capabilities)
+        await terminateSession();
+
+        const res = await proxyPost('get_capabilities');
+        assert.ok(
+            res.success !== false,
+            `get_capabilities should succeed without active session, got: ${JSON.stringify(res)}`
+        );
+        const data = res.data !== undefined ? res.data : res;
+        assert.ok(
+            typeof data === 'object' && data !== null,
+            `get_capabilities should return capability object, got: ${JSON.stringify(data)}`
+        );
+        assert.ok(
+            'supportsLaunch' in data,
+            `Capabilities should include supportsLaunch: ${JSON.stringify(data)}`
+        );
+    });
 });

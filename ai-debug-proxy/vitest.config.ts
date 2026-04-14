@@ -1,6 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Replace the VS Code runtime module with a stub so unit tests can
+      // import production code that imports 'vscode' without a real extension host.
+      vscode: path.resolve(__dirname, 'src/test/mocks/vscode.ts'),
+    },
+  },
   test: {
     exclude: [
       '**/node_modules/**',

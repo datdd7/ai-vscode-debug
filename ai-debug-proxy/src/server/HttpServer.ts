@@ -202,7 +202,7 @@ export class HttpServer {
         const method = req.method || "GET";
         const url = req.url || "/";
 
-        console.log(`[${LOG}] Incoming request: ${method} ${url}`);
+        logger.debug(LOG, `Incoming request: ${method} ${url}`);
 
         // ADP-023: restrict CORS — allow only localhost/127.0.0.1 origins.
         // Non-matching origins get no CORS header, so browsers block the request.
