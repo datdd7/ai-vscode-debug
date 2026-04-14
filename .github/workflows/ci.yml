@@ -169,9 +169,8 @@ jobs:
       - name: npm audit (high severity blocks CI)
         run: npm audit --production --audit-level=high
 
-      - name: npm audit (moderate — informational)
-        run: npm audit --audit-level=moderate
-        continue-on-error: true
+      - name: npm audit (moderate+ production only)
+        run: npm audit --audit-level=moderate --omit=dev
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Job 6: CI Gate — all required jobs must pass

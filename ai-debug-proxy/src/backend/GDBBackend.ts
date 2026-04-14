@@ -25,8 +25,8 @@
  */
 
 import { EventEmitter } from 'events';
-import * as fs from 'fs';
-import * as path from 'path';
+import { logger } from '../utils/logging';
+import { DebugError, DebugErrorCode } from '../utils/errors';
 import {
     IDebugBackend,
     BackendConfig,
@@ -42,12 +42,9 @@ import {
 } from '../core/IDebugBackend';
 import { MI2, MIStoppedEvent } from '../protocol/mi2/MI2';
 
-// ADP-003: use portable path relative to the compiled output directory
-const LOG_FILE = path.join(__dirname, '..', 'proxy.log');
-
 /**
  * GDB Debug Backend.
- * 
+ *
  * Handles process lifecycle, execution control, and variable inspection
  * via GDB's Machine Interface (MI2).
  */
@@ -70,38 +67,25 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     }
 
     /**
-     * Log helper
-     */
-    private log(message: string) {
-        const logMsg = `[GDBBackend][${new Date().toISOString()}] ${message}\n`;
-        console.log(logMsg.trim());
-        try {
-            fs.appendFileSync(LOG_FILE, logMsg);
-        } catch (e) {
-            // ignore
-        }
-    }
-
-    /**
      * Initializes the GDB backend.
      * Starts the GDB process with MI2 interpreter and pretty-printing enabled.
-     * 
+     *
      * @param config - Backend configuration (gdbPath, etc.)
      */
     async initialize(config: BackendConfig): Promise<void> { /* $REQ REQ-CORE-001 REQ-CORE-002 */
-        this.log(`Initializing GDBBackend: ${JSON.stringify(config, null, 2)}`);
-        
+        logger.debug('GDBBackend', `Initializing: ${JSON.stringify(config, null, 2)}`);
+
         this.config = config;
         this.mi2 = new MI2(config.gdbPath || 'gdb', ['--interpreter=mi2']);
-        
+
         // Forward MI2 raw output to our log
         this.mi2.on('msg', (msg: string) => {
-            this.log(`[MI2 RAW] ${msg}`);
+            logger.debug('GDBBackend', `MI2 RAW: ${msg}`);
         });
-        
+
         // Set up event listeners - map MI2 events to backend events
         this.mi2.on('stopped', (event: MIStoppedEvent) => {
-            this.log(`[GDBBackend] Stopped event: ${event.reason}`);
+            logger.debug('GDBBackend', `Stopped event: ${event.reason}`);
             this.running = false;
             this.updateCurrentFrame(event);
             this.lastStopEvent = this.createStopEvent(event);
@@ -110,25 +94,25 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
         });
 
         this.mi2.on('running', () => {
-            this.log('[GDBBackend] Running event');
+            logger.debug('GDBBackend', 'Running event');
             this.running = true;
             this.emit('running');
         });
 
         this.mi2.on('exited', (code: number) => {
-            this.log(`[GDBBackend] Exited with code: ${code}`);
+            logger.debug('GDBBackend', `Exited with code: ${code}`);
             this.running = false;
             this.emit('exited', code);
         });
-        
+
         // Start GDB
         await this.mi2.start(process.cwd(), [
             '-enable-pretty-printing',
             '-gdb-set target-async on'
         ]);
-        
+
         this.running = false;
-        this.log('GDBBackend initialized successfully');
+        logger.debug('GDBBackend', 'Initialized successfully');
     }
 
     /**
@@ -138,7 +122,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
         const reason = event.reason === 'exited' ? 'exited' as const :
                       event.reason === 'breakpoint-hit' ? 'breakpoint' as const :
                       event.reason === 'end-stepping-range' || event.reason === 'function-finished' ? 'step' as const :
-                      event.reason === 'signal-received' ? 
+                      event.reason === 'signal-received' ?
                         (event.signalName === 'SIGINT' ? 'pause' as const : 'exception' as const) :
                       'pause' as const;
 
@@ -179,7 +163,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async launch(params: LaunchParams): Promise<void> { /* $REQ REQ-CORE-004 */
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        this.log(`Starting program: ${params.program}`);
+        logger.debug('GDBBackend', `Starting program: ${params.program}`);
 
         // Load executable — ADP-021: escape path to prevent MI2 command injection
         await this.mi2.sendCommand(`-file-exec-and-symbols "${this.escapePath(params.program)}"`);
@@ -200,10 +184,10 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
         // Use -f (pending) so the breakpoint activates even when main is in a shared library
         if (params.stopOnEntry) {
             await this.mi2.sendCommand('-break-insert -f main');
-            console.log('[GDBBackend] Breakpoint set at main (pending)');
+            logger.debug('GDBBackend', 'Breakpoint set at main (pending)');
         }
-        
-        this.log('Launch complete (deferred -exec-run)');
+
+        logger.debug('GDBBackend', 'Launch complete (deferred -exec-run)');
     }
 
     /**
@@ -211,8 +195,8 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async start(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        
-        console.log('[GDBBackend] Starting program execution');
+
+        logger.debug('GDBBackend', 'Starting program execution');
         await this.mi2.sendCommand('-exec-run');
         this.running = true;
     }
@@ -223,7 +207,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async attach(params: AttachParams): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Attaching to PID:', params.processId);
+        logger.debug('GDBBackend', 'Attaching to PID', { pid: params.processId });
         await this.mi2.sendCommand(`-target-attach ${params.processId}`);
     }
 
@@ -231,7 +215,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      * Terminate debug session
      */
     async terminate(): Promise<void> { /* $REQ REQ-CORE-006 */
-        console.log('[GDBBackend] Terminating session');
+        logger.debug('GDBBackend', 'Terminating session');
 
         if (this.mi2) {
             // Send exit command without awaiting to avoid hanging if GDB closes pipe
@@ -249,7 +233,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      * Check if debugger is running
      */
     isRunning(): boolean {
-        this.log(`isRunning() check: ${this.running}`);
+        logger.debug('GDBBackend', `isRunning() check: ${this.running}`);
         return this.running;
     }
 
@@ -261,7 +245,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async continue(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        this.log('[GDBBackend] Continuing execution - setting running=true');
+        logger.debug('GDBBackend', 'Continuing execution - setting running=true');
         this.running = true; // Set immediately for responsiveness
         await this.mi2.sendCommand('-exec-continue');
     }
@@ -274,7 +258,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async stepOver(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Stepping over');
+        logger.debug('GDBBackend', 'Stepping over');
         this.running = true;
         await this.mi2.sendCommand('-exec-next');
     }
@@ -285,7 +269,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async stepIn(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Stepping into');
+        logger.debug('GDBBackend', 'Stepping into');
         this.running = true;
         await this.mi2.sendCommand('-exec-step');
     }
@@ -296,7 +280,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async stepOut(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Stepping out');
+        logger.debug('GDBBackend', 'Stepping out');
         this.running = true;
         await this.mi2.sendCommand('-exec-finish');
     }
@@ -307,7 +291,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async pause(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Pausing execution');
+        logger.debug('GDBBackend', 'Pausing execution');
         await this.mi2.sendCommand('-exec-interrupt');
     }
 
@@ -316,7 +300,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async jumpToLine(line: number, file?: string): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        this.log(`Attempting jump to line ${line}${file ? ` in ${file}` : ''}`);
+        logger.debug('GDBBackend', `Attempting jump to line ${line}${file ? ` in ${file}` : ''}`);
 
         // 1. Get file path
         let targetFile = file;
@@ -333,7 +317,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
         }
 
         // 2. Set temporary breakpoint at target to ensure we stop
-        this.log(`Forcing temporary breakpoint at ${targetFile}:${line} for jump safety`);
+        logger.debug('GDBBackend', `Forcing temporary breakpoint at ${targetFile}:${line} for jump safety`);
         const ef = this.escapePath(targetFile);
         await this.mi2.sendCommand(`-break-insert -t ${ef}:${line}`);
 
@@ -346,7 +330,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async runUntilLine(line: number, file?: string): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        this.log(`Running until line ${line}${file ? ` in ${file}` : ''}`);
+        logger.debug('GDBBackend', `Running until line ${line}${file ? ` in ${file}` : ''}`);
 
         // 1. Get file path
         let targetFile = file;
@@ -377,7 +361,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async setBreakpoint(location: SourceLocation): Promise<Breakpoint> { /* $REQ REQ-BACKEND-006 */
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Setting breakpoint at', location);
+        logger.debug('GDBBackend', 'Setting breakpoint at', location);
 
         const result = await this.mi2.sendCommand(
             `-break-insert ${this.escapePath(location.path)}:${location.line}`
@@ -407,9 +391,11 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async removeBreakpoint(id: string): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Removing breakpoint:', id);
-        await this.mi2.sendCommand(`-break-delete ${id}`);
-        this.breakpoints.delete(id);
+        // ADP-001: normalize id to string — callers may pass number from JSON
+        const strId = String(id);
+        logger.debug('GDBBackend', 'Removing breakpoint', { id: strId });
+        await this.mi2.sendCommand(`-break-delete ${strId}`);
+        this.breakpoints.delete(strId);
     }
 
     /**
@@ -425,11 +411,11 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async getStackTrace(threadId?: number): Promise<StackFrame[]> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Getting stack trace');
+        logger.debug('GDBBackend', 'Getting stack trace');
 
         const cmd = threadId ? `-stack-list-frames --thread ${threadId}` : '-stack-list-frames';
         const result = await this.mi2.sendCommand(cmd);
-        this.log(`stack-list-frames results: ${JSON.stringify(result.resultData, null, 2)}`);
+        logger.debug('GDBBackend', `stack-list-frames results: ${JSON.stringify(result.resultData, null, 2)}`);
 
         if (!result.resultData || !result.resultData.stack) {
             return [];
@@ -450,14 +436,14 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async getVariables(frameId?: number): Promise<Variable[]> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Getting variables');
+        logger.debug('GDBBackend', 'Getting variables');
 
         if (frameId !== undefined) {
             await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
         }
 
         const result = await this.mi2.sendCommand('-stack-list-locals 1');
-        this.log(`stack-list-locals results: ${JSON.stringify(result.resultData, null, 2)}`);
+        logger.debug('GDBBackend', `stack-list-locals results: ${JSON.stringify(result.resultData, null, 2)}`);
 
         if (!result.resultData || !result.resultData.locals) {
             return [];
@@ -477,7 +463,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async getArguments(frameId?: number): Promise<Variable[]> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Getting arguments');
+        logger.debug('GDBBackend', 'Getting arguments');
 
         const targetFrame = frameId ?? this.currentFrameId ?? 0;
         await this.mi2.sendCommand(`-stack-select-frame ${targetFrame}`);
@@ -505,7 +491,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async getGlobals(): Promise<Variable[]> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Getting globals');
+        logger.debug('GDBBackend', 'Getting globals');
 
         const consoleStr = await this.executeStatement('info variables');
         if (!consoleStr) return [];
@@ -533,7 +519,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async evaluate(expression: string, frameId?: number): Promise<Variable> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Evaluating:', expression);
+        logger.debug('GDBBackend', 'Evaluating', { expression });
 
         const targetFrame = frameId ?? this.currentFrameId;
         if (targetFrame !== undefined) {
@@ -557,7 +543,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async getRegisters(): Promise<Variable[]> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Getting registers');
+        logger.debug('GDBBackend', 'Getting registers');
 
         const result = await this.mi2.sendCommand('-data-list-register-values x');
 
@@ -583,7 +569,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
             throw new Error('Memory read length exceeds maximum (64KB)');
         }
 
-        console.log('[GDBBackend] Reading memory at 0x' + address.toString(16));
+        logger.debug('GDBBackend', `Reading memory at 0x${address.toString(16)}`);
 
         const result = await this.mi2.sendCommand(
             `-data-read-memory-bytes "0x${address.toString(16)}" ${length}`
@@ -605,7 +591,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async writeMemory(address: number, data: Buffer): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
 
-        console.log('[GDBBackend] Writing memory at 0x' + address.toString(16));
+        logger.debug('GDBBackend', `Writing memory at 0x${address.toString(16)}`);
 
         const hex = data.toString('hex');
         await this.mi2.sendCommand(
@@ -617,7 +603,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      * Get last stop information
      */
     async getLastStopInfo(): Promise<StopEvent> {
-        console.log('[GDBBackend] Getting last stop info');
+        logger.debug('GDBBackend', 'Getting last stop info');
 
         if (this.lastStopEvent) {
             return this.lastStopEvent;
@@ -638,7 +624,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async listThreads(): Promise<ThreadInfo[]> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Listing threads');
+        logger.debug('GDBBackend', 'Listing threads');
 
         const result = await this.mi2.sendCommand('-thread-info');
         const threads = result.resultData?.threads || [];
@@ -665,7 +651,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async switchThread(threadId: number): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log(`[GDBBackend] Switching to thread ${threadId}`);
+        logger.debug('GDBBackend', `Switching to thread ${threadId}`);
         await this.mi2.sendCommand(`-thread-select ${threadId}`);
         // Reset frame context: new thread starts at its top frame (0)
         this.currentFrameId = 0;
@@ -693,7 +679,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async restart(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Restarting session');
+        logger.debug('GDBBackend', 'Restarting session');
         await this.mi2.sendCommand('-exec-run');
     }
 
@@ -705,18 +691,26 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async frameUp(): Promise<void> { /* $REQ REQ-BACKEND-005 */
         if (!this.mi2) throw new Error('GDB not initialized');
         this.currentFrameId++;
-        console.log('[GDBBackend] Frame up →', this.currentFrameId);
+        logger.debug('GDBBackend', 'Frame up', { frameId: this.currentFrameId });
         await this.mi2.sendCommand(`-stack-select-frame ${this.currentFrameId}`);
     }
 
     /**
      * Frame down (toward callee).
-     * ADP-002: decrements currentFrameId (floor 0) and sends absolute frame number.
+     * ADP-002: decrements currentFrameId and sends absolute frame number.
+     * Throws if already at the outermost frame (frame 0).
      */
     async frameDown(): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        if (this.currentFrameId > 0) this.currentFrameId--;
-        console.log('[GDBBackend] Frame down →', this.currentFrameId);
+        if (this.currentFrameId === 0) {
+            throw new DebugError(
+                DebugErrorCode.OPERATION_FAILED,
+                'Already at the outermost frame',
+                'Use frame_up to navigate to inner frames first'
+            );
+        }
+        this.currentFrameId--;
+        logger.debug('GDBBackend', 'Frame down', { frameId: this.currentFrameId });
         await this.mi2.sendCommand(`-stack-select-frame ${this.currentFrameId}`);
     }
 
@@ -727,7 +721,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
     async gotoFrame(frameId: number): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
         this.currentFrameId = frameId;
-        console.log('[GDBBackend] Go to frame:', frameId);
+        logger.debug('GDBBackend', 'Go to frame', { frameId });
         await this.mi2.sendCommand(`-stack-select-frame ${frameId}`);
     }
 
@@ -737,7 +731,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async setTempBreakpoint(location: SourceLocation): Promise<Breakpoint> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Set temp breakpoint at', location);
+        logger.debug('GDBBackend', 'Set temp breakpoint at', location);
         const result = await this.mi2.sendCommand(
             `-break-insert -t ${this.escapePath(location.path)}:${location.line}`
         );
@@ -756,17 +750,27 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async removeAllBreakpointsInFile(filePath: string): Promise<void> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Remove all breakpoints in', filePath);
-        
+        logger.debug('GDBBackend', 'Remove all breakpoints in', { filePath });
+
         const result = await this.mi2.sendCommand('-break-list');
         if (!result.resultData?.BreakpointTable?.body) return;
-        
+
         const bps = result.resultData.BreakpointTable.body;
         for (const bp of bps) {
-            const bpFile = bp[4] || bp.file || '';
-            if (bpFile.includes(filePath)) {
-                const bpNumber = bp[0] || bp.number;
+            // ADP-021: real GDB returns objects with fullname (abs) + file (rel).
+            // Mocked tests use array format where bp[4]=file, bp[0]=number.
+            // Check fullname first so absolute filePath queries match correctly.
+            const bpFile = bp.fullname || bp[4] || bp.file || '';
+            const bpRelative = typeof bp.file === 'string' ? bp.file : (typeof bp[4] === 'string' ? String(bp[4]) : '');
+            const matches = bpFile !== '' && (
+                bpFile.includes(filePath) ||
+                (bpRelative !== '' && filePath.endsWith('/' + bpRelative))
+            );
+            if (matches) {
+                const bpNumber = String(bp.number || bp[0] || '');
+                if (!bpNumber) continue;
                 await this.mi2.sendCommand(`-break-delete ${bpNumber}`);
+                this.breakpoints.delete(bpNumber);
             }
         }
     }
@@ -776,7 +780,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async listSource(params?: any): Promise<string> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] List source');
+        logger.debug('GDBBackend', 'List source');
 
         const linesAround = params?.linesAround ?? 10;
         const frameId = params?.frameId ?? this.currentFrameId;
@@ -807,9 +811,11 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async getSource(expression: string): Promise<string> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Get source:', expression);
+        logger.debug('GDBBackend', 'Get source', { expression });
         const result = await this.mi2.sendCommand('-interpreter-exec console "info source"');
-        return result.resultData?.consoleOutput || result.resultData?.value || '';
+        const raw = result.resultData?.consoleOutput || result.resultData?.value || '';
+        // Sanitize absolute paths to avoid leaking internal filesystem layout
+        return raw.replace(/\/[^\s:,"']+/g, '[path]');
     }
 
     /**
@@ -817,7 +823,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async prettyPrint(expression: string): Promise<Variable> {
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Pretty print:', expression);
+        logger.debug('GDBBackend', 'Pretty print', { expression });
         const result = await this.mi2.sendCommand(`-data-evaluate-expression "${expression}"`);
         return {
             name: expression,
@@ -831,7 +837,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async whatis(expression: string): Promise<string> { /* $REQ REQ-BACKEND-001 REQ-BACKEND-002 REQ-BACKEND-003 */
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Whatis:', expression);
+        logger.debug('GDBBackend', 'Whatis', { expression });
         // Use -var-create to get structured type info (avoids interpreter-exec console timing issue)
         const varName = `wt${Date.now()}`; // GDB requires varobj name to start with a letter
         try {
@@ -852,7 +858,7 @@ export class GDBBackend extends EventEmitter implements IDebugBackend {
      */
     async executeStatement(statement: string): Promise<string> { /* $REQ REQ-BACKEND-004 REQ-ERR-004 */
         if (!this.mi2) throw new Error('GDB not initialized');
-        console.log('[GDBBackend] Execute statement:', statement);
+        logger.debug('GDBBackend', 'Execute statement', { statement });
         const result = await this.mi2.sendCommand(`-interpreter-exec console "${statement}"`);
         return result.resultData?.consoleOutput || result.resultData?.value || '';
     }

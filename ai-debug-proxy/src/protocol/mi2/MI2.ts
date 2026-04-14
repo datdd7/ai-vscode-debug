@@ -21,6 +21,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { parseMI, MINode } from './mi_parse';
+import { logger } from '../../utils/logging';
 
 export interface MIResult {
     token?: number;
@@ -116,7 +117,7 @@ export class MI2 extends EventEmitter {
      */
     async start(cwd: string, initCommands: string[] = []): Promise<void> {
         return new Promise((resolve, reject) => {
-            console.log('[MI2] Starting GDB:', this.application);
+            logger.debug('MI2', 'Starting GDB', { application: this.application });
 
             this.process = spawn(this.application, this.args, {
                 cwd,
@@ -128,12 +129,12 @@ export class MI2 extends EventEmitter {
             });
 
             this.process.stderr?.on('data', (data: Buffer) => {
-                console.error('[MI2] GDB stderr:', data.toString());
+                logger.error('MI2', 'GDB stderr', { data: data.toString() });
             });
 
             // ADP-005: On exit, reject all pending commands immediately
             this.process.on('exit', (code) => {
-                console.log('[MI2] GDB exited with code:', code);
+                logger.debug('MI2', 'GDB exited', { code });
                 this.running = false;
                 this.emit('exited', code);
                 for (const [, cb] of this.pendingCommands) {
@@ -143,7 +144,7 @@ export class MI2 extends EventEmitter {
             });
 
             this.process.on('error', (err) => {
-                console.error('[MI2] GDB process error:', err);
+                logger.error('MI2', 'GDB process error', { error: err.message });
                 reject(err);
             });
 
@@ -169,7 +170,7 @@ export class MI2 extends EventEmitter {
             // Safety fallback: if no (gdb) prompt within 5s, proceed anyway
             setTimeout(() => {
                 if (!readyHandled) {
-                    console.warn('[MI2] (gdb) prompt not seen after 5s, proceeding anyway');
+                    logger.warn('MI2', '(gdb) prompt not seen after 5s, proceeding anyway');
                     onReady();
                 }
             }, 5000);
@@ -295,6 +296,8 @@ export class MI2 extends EventEmitter {
                             this.emit('stopped', event);
                         } else if (record.asyncClass === 'running') {
                             this.emit('running');
+                        } else if (record.asyncClass === 'thread-group-exited') {
+                            this.emit('exited', 0);
                         }
                     }
                 }
@@ -328,7 +331,7 @@ export class MI2 extends EventEmitter {
             this.pendingCommands.set(token, { resolve, reject });
 
             const line = `${token}${cmd}\n`;
-            console.log('[MI2] Sending:', line.trim());
+            logger.debug('MI2', 'Sending', { command: line.trim() });
             this.process.stdin?.write(line);
 
             // Timeout after 30 seconds for file operations, 10 seconds otherwise

@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BackendManager } from '../../backend/BackendManager';
+import { logger } from '../../utils/logging';
 
 // Helper: create a fresh BackendManager instance (bypasses singleton)
 const freshManager = () => new (BackendManager as any)() as BackendManager;
@@ -131,14 +132,14 @@ describe('BackendManager', () => {
                 terminate: vi.fn().mockRejectedValue(new Error('terminate failed'))
             } as any;
             manager.setActiveBackend(faultyBackend);
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const loggerSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
             await expect(manager.releaseAllBackends()).resolves.toBeUndefined();
-            expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[BackendManager] Error releasing backend:'),
-                expect.any(String),
-                expect.any(Error)
+            expect(loggerSpy).toHaveBeenCalledWith(
+                'BackendManager',
+                'Error releasing backend',
+                expect.objectContaining({ type: expect.any(String) })
             );
-            consoleSpy.mockRestore();
+            loggerSpy.mockRestore();
         });
     });
 

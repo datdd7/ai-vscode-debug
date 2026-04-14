@@ -176,13 +176,27 @@ export function validateOperationArgs(
 
     // Breakpoint operations requiring location
     case "set_breakpoint": /* $REQ REQ-VAL-002 */
-    case "set_temp_breakpoint":
-    case "remove_breakpoint": {
+    case "set_temp_breakpoint": {
       if (!args) return fail(`'${operation}' requires a 'location' parameter`);
       const loc = validateLocation(args.location);
       if (!loc)
         return fail(
           `'${operation}' requires 'location' with 'path' (string) and 'line' (number)`,
+        );
+      return ok({ ...args, location: loc });
+    }
+
+    case "remove_breakpoint": {
+      if (!args) return fail("'remove_breakpoint' requires 'id' or 'location' parameter");
+      // Accept id-based removal (preferred — id comes from get_active_breakpoints)
+      if (args.id !== undefined) {
+        return ok({ ...args, id: String(args.id) });
+      }
+      // Accept location-based removal for backward compatibility
+      const loc = validateLocation(args.location);
+      if (!loc)
+        return fail(
+          "'remove_breakpoint' requires 'id' (string or number) or 'location' with 'path' and 'line'",
         );
       return ok({ ...args, location: loc });
     }

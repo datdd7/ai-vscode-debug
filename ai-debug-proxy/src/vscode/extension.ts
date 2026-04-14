@@ -23,7 +23,7 @@ let server: HttpServer | null = null;
  * Activate extension
  */
 export function activate(context: vscode.ExtensionContext) {
-    logger.info(LOG, "AI Debug Proxy v3.0 activating...");
+    logger.info(LOG, "AI Debug Proxy v3.0.0 activating...");
 
     // Read configuration
     const config = vscode.workspace.getConfiguration("aiDebugProxy");
@@ -148,7 +148,7 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    logger.info(LOG, "AI Debug Proxy v3.0 activated successfully");
+    logger.info(LOG, "AI Debug Proxy v3.0.0 activated successfully");
 }
 
 /**

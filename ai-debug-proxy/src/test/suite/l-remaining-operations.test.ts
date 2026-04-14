@@ -89,4 +89,40 @@ suite('Suite L: Remaining Operations', () => {
             `Error should mention processId: ${errMsg}`
         );
     });
+
+    test('L4: write_memory round-trip — read-back verifies written bytes', async function() {
+        this.timeout(30000);
+        await launchAndWaitForStop('SuiteL-L4');
+        await proxyPost('step_over');
+        await waitForStepComplete(5000);
+
+        // Get address of iteration
+        const addrRes = await proxyPost('evaluate', { expression: '&iteration' });
+        assert.ok(addrRes.success !== false, `evaluate &iteration failed: ${JSON.stringify(addrRes)}`);
+        const addrVal = String((addrRes.data ?? addrRes)?.value ?? '0');
+        const hexMatch = addrVal.match(/0x[0-9a-fA-F]+/);
+        assert.ok(hexMatch, `Expected hex address, got: ${addrVal}`);
+        const address = hexMatch![0];
+        const addrNum = parseInt(address, 16);
+
+        // Write known pattern: 0xDE, 0xAD, 0xBE, 0xEF
+        const writeRes = await proxyPost('write_memory', {
+            address: addrNum,
+            data: 'deadbeef'
+        });
+        assert.ok(writeRes.success !== false, `write_memory failed: ${JSON.stringify(writeRes)}`);
+
+        // Read back 4 bytes and verify
+        const readRes = await proxyPost('read_memory', {
+            memoryReference: address,
+            count: 4
+        });
+        assert.ok(readRes.success !== false, `read_memory failed: ${JSON.stringify(readRes)}`);
+
+        const hexData: string = (readRes.data?.data || '').toLowerCase();
+        assert.ok(
+            hexData.includes('de') && hexData.includes('ad'),
+            `Read-back should contain written bytes (deadbeef), got: ${hexData}`
+        );
+    });
 });

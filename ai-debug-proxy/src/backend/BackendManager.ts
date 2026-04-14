@@ -9,6 +9,7 @@
 import { IDebugBackend } from '../core/IDebugBackend';
 import { BackendConfig } from '../core/IDebugBackend';
 import { GDBBackend } from './GDBBackend';
+import { logger } from '../utils/logging';
 
 /**
  * Backend Manager
@@ -26,10 +27,8 @@ export class BackendManager {
      */
     static getInstance(): BackendManager {
         if (!this.instance) {
-            console.log('[BackendManager] Creating NEW singleton instance');
+            logger.debug('BackendManager', 'Creating NEW singleton instance');
             this.instance = new BackendManager();
-        } else {
-            // console.log('[BackendManager] Accessing existing singleton instance');
         }
         return this.instance;
     }
@@ -40,12 +39,12 @@ export class BackendManager {
      * @param config Backend configuration
      */
     createBackend(type: string, config: BackendConfig): IDebugBackend {
-        console.log('[BackendManager] Creating backend:', type, 'Current instances:', this.backendInstances.size);
+        logger.debug('BackendManager', 'Creating backend', { type, instances: this.backendInstances.size });
 
         // Check if we already have an instance
         const existing = this.backendInstances.get(type);
         if (existing) {
-            console.log('[BackendManager] Reusing existing backend instance');
+            logger.debug('BackendManager', 'Reusing existing backend instance');
             this.currentBackend = existing;
             return existing;
         }
@@ -69,7 +68,7 @@ export class BackendManager {
         this.backendInstances.set(type, backend);
         this.currentBackend = backend;
 
-        console.log('[BackendManager] Backend created successfully and set as current');
+        logger.debug('BackendManager', 'Backend created successfully and set as current');
         return backend;
     }
 
@@ -78,9 +77,7 @@ export class BackendManager {
      */
     getCurrentBackend(): IDebugBackend | undefined {
         if (!this.currentBackend) {
-            console.log('[BackendManager] getCurrentBackend: No backend set! Current instances:', this.backendInstances.size);
-        } else {
-            // console.log('[BackendManager] getCurrentBackend: Returning active backend');
+            logger.warn('BackendManager', 'getCurrentBackend: No backend set', { instances: this.backendInstances.size });
         }
         return this.currentBackend;
     }
@@ -100,7 +97,7 @@ export class BackendManager {
         let backend = this.currentBackend;
 
         if (!backend) {
-            console.log('[BackendManager] getOrCreateBackend: No current backend, creating...');
+            logger.debug('BackendManager', 'getOrCreateBackend: No current backend, creating...');
             backend = this.createBackend(type, config);
             await backend.initialize(config);
         }
@@ -113,7 +110,7 @@ export class BackendManager {
      */
     async releaseBackend(): Promise<void> {
         if (this.currentBackend) {
-            console.log('[BackendManager] Releasing current backend');
+            logger.debug('BackendManager', 'Releasing current backend');
             // Remove from cache so next createBackend() makes a fresh instance
             for (const [type, backend] of this.backendInstances.entries()) {
                 if (backend === this.currentBackend) {
@@ -130,15 +127,15 @@ export class BackendManager {
      * Release all backends
      */
     async releaseAllBackends(): Promise<void> {
-        console.log('[BackendManager] Releasing all backends');
+        logger.debug('BackendManager', 'Releasing all backends');
 
         const backends = Array.from(this.backendInstances.entries());
         for (const [type, backend] of backends) {
             try {
                 await backend.terminate();
-                console.log('[BackendManager] Released backend:', type);
+                logger.debug('BackendManager', 'Released backend', { type });
             } catch (error) {
-                console.error('[BackendManager] Error releasing backend:', type, error);
+                logger.error('BackendManager', 'Error releasing backend', { type, error });
             }
         }
 
@@ -151,7 +148,7 @@ export class BackendManager {
      */
     async executeOperation<T>(operation: string, params?: any): Promise<T> {
         if (!this.currentBackend) {
-            console.log('[BackendManager] executeOperation FAILED: No backend');
+            logger.warn('BackendManager', 'executeOperation FAILED: No backend');
             throw new Error('No backend initialized. Call getOrCreateBackend first.');
         }
 
@@ -160,7 +157,7 @@ export class BackendManager {
             throw new Error(`Unknown operation: ${operation}`);
         }
 
-        console.log('[BackendManager] Executing operation:', operation);
+        logger.debug('BackendManager', 'Executing operation', { operation });
         return await method.call(this.currentBackend, params);
     }
 }

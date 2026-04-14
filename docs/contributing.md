@@ -1,7 +1,7 @@
 # Contributing to AI VSCode Debug
 
-**Version:** 3.0.0-b1
-**Last Updated:** 2026-03-30
+**Version:** 3.0.0
+**Last Updated:** 2026-04-14
 
 ---
 

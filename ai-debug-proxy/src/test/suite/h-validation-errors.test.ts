@@ -179,4 +179,26 @@ suite('Suite H: Validation & Error Resilience', () => {
             `Error should mention 'expression': ${errMsg}`
         );
     });
+
+    test('H13: Prototype pollution attempt — body fields ignored', async function() {
+        this.timeout(10000);
+        // Send __proto__ in the body — must not crash or pollute Object.prototype
+        const res = await proxyPostRaw({
+            operation: 'get_capabilities',
+            '__proto__': { polluted: true }
+        });
+
+        // Must not crash — any valid HTTP status is acceptable
+        assert.ok(
+            res.status === 200 || res.status === 400 || res.status === 500,
+            `Proxy should return a valid HTTP status, got: ${res.status}`
+        );
+
+        // Object.prototype must NOT be polluted
+        assert.strictEqual(
+            (Object.prototype as any).polluted,
+            undefined,
+            'Object.prototype.polluted should remain undefined'
+        );
+    });
 });

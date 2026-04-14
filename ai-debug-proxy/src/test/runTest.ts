@@ -7,6 +7,11 @@ import { runTests } from '@vscode/test-electron';
 const E2E_PORT = 9997;
 
 async function main() {
+    // Must unset ELECTRON_RUN_AS_NODE — when tests are invoked from within
+    // VS Code's extension host, this env var is set and causes the Electron
+    // binary to run as Node.js rather than VS Code, rejecting all VS Code flags.
+    delete process.env.ELECTRON_RUN_AS_NODE;
+
     // Create isolated user-data-dir with settings overriding proxy port
     const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-e2e-'));
     const userSettingsDir = path.join(tmpUserData, 'User');

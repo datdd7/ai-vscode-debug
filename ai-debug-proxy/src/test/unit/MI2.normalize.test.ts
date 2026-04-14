@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { normalizeMI, MI2 } from '../../protocol/mi2/MI2';
 import { EventEmitter } from 'events';
+import { logger } from '../../utils/logging';
 
 // Mock child_process.spawn so start() tests don't need real GDB
 const createMockProcess = () => {
@@ -557,7 +558,7 @@ describe('MI2 start()', () => {
     });
 
     it('logs stderr output', async () => {
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const loggerSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
         try {
             const mi2 = new MI2('gdb', ['--interpreter=mi2']);
             const proc = createMockProcess();
@@ -569,12 +570,13 @@ describe('MI2 start()', () => {
             proc.stdout.emit('data', Buffer.from('(gdb)\n'));
             await Promise.resolve();
             await startPromise;
-            expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[MI2] GDB stderr:'),
-                expect.stringContaining('GDB warning')
+            expect(loggerSpy).toHaveBeenCalledWith(
+                'MI2',
+                'GDB stderr',
+                expect.objectContaining({ data: expect.stringContaining('GDB warning') })
             );
         } finally {
-            consoleSpy.mockRestore();
+            loggerSpy.mockRestore();
         }
     });
 });
@@ -635,5 +637,12 @@ describe('MI2 branch coverage — handleOutput edge cases', () => {
         inject('*stopped,reason="breakpoint-hit",frame={func="main",file="main.c",line="1"}\n');
         expect(stoppedSpy).toHaveBeenCalled();
         expect(stoppedSpy.mock.calls[0][0].threadId).toBe(1);
+    });
+
+    it('emits exited(0) on *thread-group-exited record (lines 300-301)', () => {
+        const exitedSpy = vi.fn();
+        mi2.on('exited', exitedSpy);
+        inject('*thread-group-exited,id="i1"\n');
+        expect(exitedSpy).toHaveBeenCalledWith(0);
     });
 });

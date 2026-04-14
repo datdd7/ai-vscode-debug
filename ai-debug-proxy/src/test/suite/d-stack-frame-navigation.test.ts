@@ -154,4 +154,28 @@ suite('Suite D: Stack & Frame Navigation', () => {
             `Top frame line should be near main start (${MAIN_C.FUNCTION_START}), got: ${top.line}`
         );
     });
+
+    test('D6: down at outermost frame — returns error', async function() {
+        this.timeout(12000);
+        // At entry point, currentFrameId is 0 (already at outermost frame).
+        // Calling 'down' must return an error — NOT a silent no-op.
+        const res = await proxyPost('down');
+
+        // Acceptable: success=false with error message, OR HTTP 500 with error body
+        const isError =
+            res.success === false ||
+            res.error ||
+            (res.data && typeof res.data === 'object' && res.data.success === false);
+
+        assert.ok(
+            isError,
+            `Expected error when calling down at outermost frame, got: ${JSON.stringify(res)}`
+        );
+
+        const errMsg = (res.error || res.data?.error || res.message || '').toLowerCase();
+        assert.ok(
+            errMsg.includes('outermost') || errMsg.includes('frame') || errMsg.includes('already'),
+            `Error message should indicate outermost frame: "${errMsg}"`
+        );
+    });
 });

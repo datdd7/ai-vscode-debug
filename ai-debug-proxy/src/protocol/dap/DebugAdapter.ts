@@ -25,13 +25,11 @@ import {
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
 import * as fs from 'fs';
-import * as path from 'path';
+import { logger } from '../../utils/logging';
 
 import { backendManager } from '../../backend/BackendManager';
 import { IDebugBackend, StopEvent, StackFrame as BackendStackFrame, ThreadInfo } from '../../core/IDebugBackend';
 
-// ADP-003: portable path relative to compiled output directory
-const LOG_FILE = path.join(__dirname, '..', 'proxy.log');
 
 /**
  * Launch request arguments
@@ -61,7 +59,6 @@ interface IAttachRequestArguments extends DebugProtocol.AttachRequestArguments {
 export class AIDebugSession extends LoggingDebugSession {
     private static THREAD_ID = 1;
     private variableHandles = new Handles<string>();
-    private breakpointIdMap = new Map<number, string>();
     private backend?: IDebugBackend;
     private isRunning = false;
     private stopRequested = false;
@@ -359,49 +356,18 @@ export class AIDebugSession extends LoggingDebugSession {
         response: DebugProtocol.SetBreakpointsResponse,
         args: DebugProtocol.SetBreakpointsArguments
     ): Promise<void> {
-        try {
-            this.log(`Set breakpoints: ${JSON.stringify(args, null, 2)}`);
-
-            if (!this.backend) {
-                this.sendErrorResponse(response, { 
-                    id: 12, 
-                    format: 'Debugger not initialized' 
-                });
-                return;
-            }
-
-            const actualBreakpoints: Breakpoint[] = [];
-            const sourcePath = args.source.path || '';
-
-            for (const sourceBp of (args.breakpoints || [])) {
-                const result = await this.backend.setBreakpoint({
-                    path: sourcePath,
-                    line: sourceBp.line
-                });
-
-                const dapId = Date.now() + Math.random();
-                this.breakpointIdMap.set(dapId, result.id);
-
-                const bp = new Breakpoint(
-                    result.verified,
-                    sourceBp.line,
-                    undefined,
-                    args.source as Source
-                );
-                (bp as any).id = dapId;
-                actualBreakpoints.push(bp);
-            }
-
-            response.body = { breakpoints: actualBreakpoints };
-            this.sendResponse(response);
-            this.log('Set breakpoints complete');
-        } catch (error: any) {
-            this.log(`Set breakpoints error: ${error.message}`);
-            this.sendErrorResponse(response, { 
-                id: 13, 
-                format: error.message 
-            });
-        }
+        // VS Code UI breakpoints are acknowledged but NOT forwarded to GDB.
+        // Breakpoint management is owned by the HTTP API (AI agents via /api/debug).
+        // Forwarding here would re-add BPs after the HTTP API removes them, corrupting tracking.
+        const sourceBps = args.breakpoints || [];
+        const acknowledged = sourceBps.map((bp, i) => {
+            const dapBp = new Breakpoint(false, bp.line, undefined, args.source as Source);
+            (dapBp as any).id = i;
+            return dapBp;
+        });
+        response.body = { breakpoints: acknowledged };
+        this.sendResponse(response);
+        this.log(`setBreakpointsRequest: acknowledged ${sourceBps.length} VS Code UI breakpoints (not forwarded to GDB)`);
     }
 
     /**
@@ -694,13 +660,7 @@ export class AIDebugSession extends LoggingDebugSession {
      * Log helper
      */
     private log(message: string) {
-        const logMsg = `[AIDebugSession][${new Date().toISOString()}] ${message}\n`;
-        console.log(logMsg.trim());
-        try {
-            fs.appendFileSync(LOG_FILE, logMsg);
-        } catch (e) {
-            // ignore
-        }
+        logger.debug('DebugAdapter', message);
     }
 }
 

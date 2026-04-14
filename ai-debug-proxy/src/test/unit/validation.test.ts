@@ -107,6 +107,32 @@ describe("validateOperationArgs", () => {
   });
 
   // ----------------------------------------------------------------
+  // remove_breakpoint — id-based path (preferred over location)
+  // ----------------------------------------------------------------
+  describe("remove_breakpoint (id-based)", () => {
+    it("ok with string id", () => {
+      const r = validateOperationArgs("remove_breakpoint", { id: "2" });
+      expect(r.isValid).toBe(true);
+      expect(r.params?.id).toBe("2");
+    });
+
+    it("ok with numeric id (coerces to string)", () => {
+      const r = validateOperationArgs("remove_breakpoint", { id: 3 });
+      expect(r.isValid).toBe(true);
+      expect(r.params?.id).toBe("3");
+    });
+
+    it("ok with id and location together (id takes precedence)", () => {
+      const r = validateOperationArgs("remove_breakpoint", {
+        id: "5",
+        location: { path: "/f.c", line: 10 },
+      });
+      expect(r.isValid).toBe(true);
+      expect(r.params?.id).toBe("5");
+    });
+  });
+
+  // ----------------------------------------------------------------
   // remove_all_breakpoints_in_file
   // ----------------------------------------------------------------
   describe("remove_all_breakpoints_in_file", () => {

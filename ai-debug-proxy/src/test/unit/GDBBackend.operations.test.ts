@@ -58,10 +58,8 @@ describe('GDBBackend - PI3 Operations', () => {
         });
 
         // ADP-002 regression: frameDown must not use "-1"
-        it('frameDown() from frame 0 stays at 0 (floor guard)', async () => {
-            mi2Mock.sendCommand.mockResolvedValue({});
-            await backend.frameDown();
-            expect(mi2Mock.sendCommand).toHaveBeenCalledWith('-stack-select-frame 0');
+        it('frameDown() throws DebugError when already at frame 0', async () => {
+            await expect(backend.frameDown()).rejects.toThrow('Already at the outermost frame');
         });
 
         it('frameDown() after frameUp returns to 0', async () => {
@@ -139,6 +137,20 @@ describe('GDBBackend - PI3 Operations', () => {
             expect(mi2Mock.sendCommand).toHaveBeenCalledWith('-break-delete 7');
         });
 
+        it('removeBreakpoint() removes from internal tracking map', async () => {
+            (backend as any).breakpoints.set('7', { id: '7', verified: true, line: 10, file: 'foo.c' });
+            mi2Mock.sendCommand.mockResolvedValue({});
+            await backend.removeBreakpoint('7');
+            expect((backend as any).breakpoints.has('7')).toBe(false);
+        });
+
+        it('removeBreakpoint() normalizes numeric id to string for map delete', async () => {
+            (backend as any).breakpoints.set('5', { id: '5', verified: true, line: 1, file: 'bar.c' });
+            mi2Mock.sendCommand.mockResolvedValue({});
+            await backend.removeBreakpoint(5 as unknown as string);
+            expect((backend as any).breakpoints.has('5')).toBe(false);
+        });
+
         it('removeBreakpoint() throws when mi2 is null (branch line 395)', async () => {
             (backend as any).mi2 = null;
             await expect(backend.removeBreakpoint('5')).rejects.toThrow('GDB not initialized');
@@ -208,6 +220,62 @@ describe('GDBBackend - PI3 Operations', () => {
             expect(mi2Mock.sendCommand).toHaveBeenCalledWith('-break-delete 3');
         });
 
+        it('removeAllBreakpointsInFile() removes matching entries from internal tracking map', async () => {
+            (backend as any).breakpoints.set('1', { id: '1', verified: true, line: 42, file: 'main.c' });
+            (backend as any).breakpoints.set('2', { id: '2', verified: true, line: 10, file: 'other.c' });
+            (backend as any).breakpoints.set('3', { id: '3', verified: true, line: 50, file: 'main.c' });
+            mi2Mock.sendCommand
+                .mockResolvedValueOnce({
+                    resultData: {
+                        BreakpointTable: {
+                            body: [
+                                ['1', 'breakpoint', 'keep', 'y', 'main.c', '42'],
+                                ['2', 'breakpoint', 'keep', 'y', 'other.c', '10'],
+                                ['3', 'breakpoint', 'keep', 'y', 'main.c', '50']
+                            ]
+                        }
+                    }
+                })
+                .mockResolvedValue({});
+            await backend.removeAllBreakpointsInFile('main.c');
+            expect((backend as any).breakpoints.has('1')).toBe(false);
+            expect((backend as any).breakpoints.has('2')).toBe(true);
+            expect((backend as any).breakpoints.has('3')).toBe(false);
+        });
+
+        it('removeAllBreakpointsInFile() matches bp.fullname against absolute filePath', async () => {
+            (backend as any).breakpoints.set('8', { id: '8', verified: true, line: 5, file: 'main.c' });
+            mi2Mock.sendCommand
+                .mockResolvedValueOnce({
+                    resultData: {
+                        BreakpointTable: {
+                            body: [{ fullname: '/home/user/project/main.c', file: 'main.c', number: '8' }]
+                        }
+                    }
+                })
+                .mockResolvedValue({});
+            await backend.removeAllBreakpointsInFile('/home/user/project/main.c');
+            expect(mi2Mock.sendCommand).toHaveBeenCalledWith('-break-delete 8');
+            expect((backend as any).breakpoints.has('8')).toBe(false);
+        });
+
+        it('removeAllBreakpointsInFile() matches relative bp.file against absolute filePath via endsWith', async () => {
+            (backend as any).breakpoints.set('4', { id: '4', verified: true, line: 3, file: 'src.c' });
+            mi2Mock.sendCommand
+                .mockResolvedValueOnce({
+                    resultData: {
+                        BreakpointTable: {
+                            body: [{ file: 'src.c', number: '4' }]
+                        }
+                    }
+                })
+                .mockResolvedValue({});
+            // Caller passes absolute path — should match via filePath.endsWith('/src.c')
+            await backend.removeAllBreakpointsInFile('/build/src.c');
+            expect(mi2Mock.sendCommand).toHaveBeenCalledWith('-break-delete 4');
+            expect((backend as any).breakpoints.has('4')).toBe(false);
+        });
+
         it('removeAllBreakpointsInFile() throws when mi2 is null (branch line 744)', async () => {
             (backend as any).mi2 = null;
             await expect(backend.removeAllBreakpointsInFile('main.c')).rejects.toThrow('GDB not initialized');
@@ -258,6 +326,20 @@ describe('GDBBackend - PI3 Operations', () => {
             });
             await backend.removeAllBreakpointsInFile('main.c');
             // Only one sendCommand call: -break-list; no -break-delete since no match
+            expect(mi2Mock.sendCommand).toHaveBeenCalledTimes(1);
+        });
+
+        it('removeAllBreakpointsInFile() skips bp when bpNumber is empty (branch: no number field)', async () => {
+            // bp has file info (matches) but no number → bpNumber='' → continue (skip)
+            mi2Mock.sendCommand.mockResolvedValueOnce({
+                resultData: {
+                    BreakpointTable: {
+                        body: [{ file: 'main.c' }]  // file present but no number
+                    }
+                }
+            });
+            await backend.removeAllBreakpointsInFile('main.c');
+            // Only -break-list sent; no -break-delete since bpNumber is empty
             expect(mi2Mock.sendCommand).toHaveBeenCalledTimes(1);
         });
     });
