@@ -326,6 +326,24 @@ describe('Router - PI3 Operations', () => {
             expect(mockBackend.removeBreakpoint).toHaveBeenCalledWith('5');
         });
 
+        it('routes "remove_breakpoint" with explicit id param (branch line 367)', async () => {
+            mockBackend.removeBreakpoint.mockResolvedValue(undefined);
+            const result = await handleRequest('POST', '/api/debug', {
+                operation: 'remove_breakpoint', params: { id: 7 }
+            }, {} as any);
+            expect(result.statusCode).toBe(200);
+            expect(mockBackend.removeBreakpoint).toHaveBeenCalledWith('7');
+        });
+
+        it('returns error when remove_breakpoint location has no match (branch line 375)', async () => {
+            mockBackend.getBreakpoints.mockResolvedValue([]);
+            const result = await handleRequest('POST', '/api/debug', {
+                operation: 'remove_breakpoint', params: { location: { path: 'missing.c', line: 99 } }
+            }, {} as any);
+            expect(result.statusCode).toBe(500);
+            expect(result.body.error).toContain('No breakpoint found');
+        });
+
         it('routes "get_active_breakpoints" to backend.getBreakpoints()', async () => {
             mockBackend.getBreakpoints.mockResolvedValue([]);
             const result = await handleRequest('POST', '/api/debug', {
